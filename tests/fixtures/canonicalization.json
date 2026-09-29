@@ -1,0 +1,236 @@
+{
+  "algorithm": "rms-c14n-1",
+  "vectors": [
+    {
+      "name": "soft-wrap-a",
+      "markdown": "## Identity\n\n### Statement\n\nPreserve stable\nidentities.",
+      "canonical": {
+        "type": "root",
+        "children": [
+          {
+            "type": "heading",
+            "depth": 0,
+            "children": [
+              {
+                "type": "text",
+                "value": "Identity"
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "depth": 1,
+            "children": [
+              {
+                "type": "text",
+                "value": "Statement"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": "Preserve stable identities."
+              }
+            ]
+          }
+        ]
+      },
+      "sha256": "4a9ccfa371dfb87d1ba713ecd52cc48ccfb4b70c8fc8952f6eaa9a5f3f42596c"
+    },
+    {
+      "name": "soft-wrap-b",
+      "markdown": "# Identity\r\n\r\n## Statement\r\n\r\nPreserve stable identities.",
+      "canonical": {
+        "type": "root",
+        "children": [
+          {
+            "type": "heading",
+            "depth": 0,
+            "children": [
+              {
+                "type": "text",
+                "value": "Identity"
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "depth": 1,
+            "children": [
+              {
+                "type": "text",
+                "value": "Statement"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": "Preserve stable identities."
+              }
+            ]
+          }
+        ]
+      },
+      "sha256": "4a9ccfa371dfb87d1ba713ecd52cc48ccfb4b70c8fc8952f6eaa9a5f3f42596c"
+    },
+    {
+      "name": "hard-break",
+      "markdown": "## Identity\n\n### Statement\n\nPreserve stable  \nidentities.",
+      "canonical": {
+        "type": "root",
+        "children": [
+          {
+            "type": "heading",
+            "depth": 0,
+            "children": [
+              {
+                "type": "text",
+                "value": "Identity"
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "depth": 1,
+            "children": [
+              {
+                "type": "text",
+                "value": "Statement"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": "Preserve stable"
+              },
+              {
+                "type": "break"
+              },
+              {
+                "type": "text",
+                "value": "identities."
+              }
+            ]
+          }
+        ]
+      },
+      "sha256": "0998b2b92a83749b0fd7f98b2350a92d1ec7733d5d9ee375c5e9c86ce9bf9f91"
+    },
+    {
+      "name": "reference-link",
+      "markdown": "## Link\n\n### Statement\n\nSee [source][a].\n\n[a]: /specification \"Source\"",
+      "canonical": {
+        "type": "root",
+        "children": [
+          {
+            "type": "heading",
+            "depth": 0,
+            "children": [
+              {
+                "type": "text",
+                "value": "Link"
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "depth": 1,
+            "children": [
+              {
+                "type": "text",
+                "value": "Statement"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": "See "
+              },
+              {
+                "type": "link",
+                "url": "/specification",
+                "title": "Source",
+                "children": [
+                  {
+                    "type": "text",
+                    "value": "source"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "value": "."
+              }
+            ]
+          }
+        ]
+      },
+      "sha256": "71b68b7b25d869cc4d9c22f764194ddb157c13c7344bbd30b43cf7d5cc1c02d3"
+    },
+    {
+      "name": "unicode-code",
+      "markdown": "## 地図\n\n### Statement\n\nPreserve `x  y` and café.\n\n```text\nx  y\n```",
+      "canonical": {
+        "type": "root",
+        "children": [
+          {
+            "type": "heading",
+            "depth": 0,
+            "children": [
+              {
+                "type": "text",
+                "value": "地図"
+              }
+            ]
+          },
+          {
+            "type": "heading",
+            "depth": 1,
+            "children": [
+              {
+                "type": "text",
+                "value": "Statement"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "children": [
+              {
+                "type": "text",
+                "value": "Preserve "
+              },
+              {
+                "type": "inlineCode",
+                "value": "x  y"
+              },
+              {
+                "type": "text",
+                "value": " and café."
+              }
+            ]
+          },
+          {
+            "type": "code",
+            "value": "x  y",
+            "lang": "text",
+            "meta": null
+          }
+        ]
+      },
+      "sha256": "698293e332b37469ef8942e2c2d3bcd7d3e18d4e3d0d9cc6d7dcab2a0eaf6920"
+    }
+  ]
+}

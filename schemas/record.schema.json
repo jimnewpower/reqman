@@ -1,0 +1,269 @@
+{
+  "$ref": "#/definitions/record",
+  "definitions": {
+    "record": {
+      "type": "object",
+      "properties": {
+        "format_version": {
+          "type": "number",
+          "const": 1
+        },
+        "uid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "review",
+            "assessment",
+            "evidence",
+            "change",
+            "verification",
+            "impact"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "subjects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "uid": {
+                "$ref": "#/definitions/record/properties/uid"
+              },
+              "definition": {
+                "$ref": "#/definitions/record/properties/actor"
+              },
+              "governance": {
+                "$ref": "#/definitions/record/properties/actor"
+              },
+              "canonicalization": {
+                "$ref": "#/definitions/record/properties/actor"
+              }
+            },
+            "required": [
+              "uid",
+              "definition",
+              "governance",
+              "canonicalization"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/record/properties/subjects/items"
+          }
+        },
+        "scope": {
+          "$ref": "#/definitions/record/properties/actor",
+          "default": "project"
+        },
+        "rationale": {
+          "$ref": "#/definitions/record/properties/actor"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "implementation",
+            "verification"
+          ]
+        },
+        "supersedes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/record/properties/uid"
+          },
+          "default": []
+        },
+        "role": {
+          "type": "string"
+        },
+        "artifact": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "$ref": "#/definitions/record/properties/actor"
+            },
+            "revision": {
+              "$ref": "#/definitions/record/properties/actor"
+            }
+          },
+          "required": [
+            "repository",
+            "revision"
+          ],
+          "additionalProperties": false
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/record/properties/uid"
+          },
+          "default": []
+        },
+        "obligations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/record/properties/uid"
+          },
+          "default": []
+        },
+        "result": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "blocked",
+            "inconclusive",
+            "skipped"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "test",
+            "inspection",
+            "analysis",
+            "demonstration",
+            "manual_acceptance"
+          ]
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "source_digest": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "location": {
+          "type": "string"
+        },
+        "test_key": {
+          "type": "string"
+        },
+        "duration": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/record/properties/details/additionalProperties"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/record/properties/details/additionalProperties"
+                }
+              }
+            ]
+          }
+        },
+        "title": {
+          "type": "string"
+        },
+        "snapshot": {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "string"
+            },
+            "objectId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "captureId": {
+              "type": "string"
+            },
+            "project": {
+              "$ref": "#/definitions/record/properties/uid"
+            },
+            "dirty": {
+              "type": "boolean"
+            },
+            "configDigest": {
+              "type": "string"
+            },
+            "canonicalization": {
+              "type": "string"
+            },
+            "repository": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "committed",
+                "working"
+              ]
+            }
+          },
+          "required": [
+            "ref",
+            "objectId",
+            "captureId",
+            "project",
+            "dirty",
+            "configDigest",
+            "canonicalization",
+            "repository",
+            "mode"
+          ],
+          "additionalProperties": false
+        },
+        "provenance": {
+          "$ref": "#/definitions/record/properties/actor",
+          "default": "local actor claim; unauthenticated"
+        }
+      },
+      "required": [
+        "format_version",
+        "uid",
+        "kind",
+        "created_at",
+        "actor",
+        "subjects",
+        "dependencies",
+        "rationale"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

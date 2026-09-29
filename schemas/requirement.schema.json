@@ -1,0 +1,150 @@
+{
+  "$ref": "#/definitions/requirement",
+  "definitions": {
+    "requirement": {
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "active",
+            "retired"
+          ],
+          "default": "draft"
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "in_scope",
+            "deferred",
+            "not_applicable",
+            "transferred"
+          ],
+          "default": "in_scope"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "retirement_reason": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/requirement/properties/fields/additionalProperties"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/requirement/properties/fields/additionalProperties"
+                }
+              }
+            ]
+          },
+          "default": {}
+        },
+        "relations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "refines",
+                  "depends_on",
+                  "related_to",
+                  "supersedes",
+                  "verified_by",
+                  "implemented_by"
+                ]
+              },
+              "target": {
+                "$ref": "#/definitions/requirement/properties/aliases/items"
+              }
+            },
+            "required": [
+              "type",
+              "target"
+            ],
+            "additionalProperties": false
+          },
+          "default": []
+        },
+        "normative_files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/requirement/properties/fields/additionalProperties"
+          },
+          "default": {}
+        }
+      },
+      "required": [
+        "uid",
+        "id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
