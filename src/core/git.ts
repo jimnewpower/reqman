@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { Problem } from "./model.js";
+import { operations, cancellation, limits } from "./operations.js";
 const execute = promisify(execFile);
 function environment() {
   const env = { ...process.env };
@@ -42,9 +43,11 @@ export async function git(
       maxBuffer: inputLimit,
       timeout: 30000,
       windowsHide: true,
+      signal: operations.getStore()?.signal,
     });
     return result.stdout;
   } catch (error) {
+    cancellation();
     const message = error instanceof Error ? error.message : String(error);
     throw new Problem(
       3,
@@ -54,6 +57,7 @@ export async function git(
   }
 }
 export async function blobs(root: string, oids: string[]): Promise<Buffer[]> {
+  cancellation();
   if (!oids.length) return [];
   const child = spawn("git", safeArguments(root, ["cat-file", "--batch"]), {
     env: environment(),
@@ -64,10 +68,13 @@ export async function blobs(root: string, oids: string[]): Promise<Buffer[]> {
   let size = 0;
   let exhausted = false;
   const timeout = setTimeout(() => child.kill(), 30000);
+  const signal = operations.getStore()?.signal;
+  const abort = () => child.kill();
+  signal?.addEventListener("abort", abort, { once: true });
   child.stderr.resume();
   child.stdout.on("data", (b: Buffer) => {
     size += b.length;
-    if (size > 110 * 1024 * 1024) {
+    if (size > limits().snapshotBytes + 10 * 1024 * 1024) {
       exhausted = true;
       child.kill();
     } else output.push(b);
@@ -76,6 +83,11 @@ export async function blobs(root: string, oids: string[]): Promise<Buffer[]> {
     child.once("error", reject);
     child.once("close", (code) => {
       clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+      if (signal?.aborted) {
+        reject(new Problem(130, "OPERATION_CANCELLED", "Git read cancelled."));
+        return;
+      }
       code === 0 && !exhausted
         ? resolve()
         : reject(
@@ -107,7 +119,7 @@ export async function blobs(root: string, oids: string[]): Promise<Buffer[]> {
     const length = Number(header[2]);
     if (
       !Number.isSafeInteger(length) ||
-      length > 10 * 1024 * 1024 ||
+      length > limits().fileBytes ||
       length < 0 ||
       end + length + 1 >= buffer.length
     )

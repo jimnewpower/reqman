@@ -1,8 +1,11 @@
 import { digest, stable } from "./data.js";
+import { index } from "./index.js";
+import { limits } from "./operations.js";
 import {
   C14N,
   Problem,
   subject,
+  selectedRequirements,
   type DurableRecord,
   type Projection,
   type Requirement,
@@ -14,7 +17,10 @@ export function dependencies(
   snapshot: Snapshot,
   requirement: Requirement,
 ): Subject[] {
-  const byId = new Map(snapshot.requirements.map((r) => [r.uid, r]));
+  const indexed = index(snapshot);
+  const cached = indexed.dependencies.get(requirement.uid);
+  if (cached) return cached;
+  const byId = indexed.requirements;
   const seen = new Set<string>([requirement.uid]);
   const result: Subject[] = [];
   const pending = [requirement];
@@ -33,7 +39,7 @@ export function dependencies(
       seen.add(edge.target);
       result.push(subject(target));
       pending.push(target);
-      if (seen.size > 100000)
+      if (seen.size > limits().requirements)
         throw new Problem(
           3,
           "IMPACT_LIMIT",
@@ -41,7 +47,9 @@ export function dependencies(
         );
     }
   }
-  return result.sort((a, b) => (a.uid < b.uid ? -1 : 1));
+  result.sort((a, b) => (a.uid < b.uid ? -1 : 1));
+  indexed.dependencies.set(requirement.uid, result);
+  return result;
 }
 export function currency(
   s: Snapshot,
@@ -59,31 +67,76 @@ export function currency(
   } catch {
     return "unknown";
   }
-  const recorded = new Map(record.dependencies.map((d) => [d.uid, d]));
-  for (const dep of expected) {
-    const prior = recorded.get(dep.uid);
-    if (!prior || prior.canonicalization !== C14N) return "unknown";
-    if (
-      prior.definition !== dep.definition ||
-      prior.governance !== dep.governance
+  if (
+    expected.some(
+      (dep) => !record.dependencies.some((prior) => prior.uid === dep.uid),
     )
-      return "needs_review";
-  }
+  )
+    return "unknown";
+  if (
+    upstreamImpacts(s, record, r, expected).some(
+      (i) => i.resolution !== "no_impact",
+    )
+  )
+    return "needs_review";
   if (record.category === "verification" || record.kind === "evidence") {
     if (!record.artifact || !artifact) return "unknown";
     if (stable(record.artifact) !== stable(artifact)) return "needs_review";
   }
   return "current";
 }
+
+export function upstreamImpacts(
+  s: Snapshot,
+  record: DurableRecord,
+  r: Requirement,
+  expected = dependencies(s, r),
+) {
+  const prior = new Map(record.dependencies.map((d) => [d.uid, d]));
+  const now = new Map(expected.map((d) => [d.uid, d]));
+  return [...new Set([...prior.keys(), ...now.keys()])]
+    .sort()
+    .flatMap((uid) => {
+      const before = prior.get(uid) ?? null;
+      const after = now.get(uid) ?? null;
+      if (stable(before) === stable(after)) return [];
+      const candidates = s.records.filter(
+        (i) =>
+          i.kind === "impact" &&
+          i.scope === record.scope &&
+          i.subjects.some((sub) => stable(sub) === stable(subject(r))) &&
+          i.changes?.some(
+            (pair) =>
+              stable(pair.before) === stable(before) &&
+              stable(pair.after) === stable(after),
+          ),
+      );
+      const superseded = new Set(s.records.flatMap((i) => i.supersedes));
+      const active = candidates.filter((i) => !superseded.has(i.uid));
+      const decisions = new Set(active.map((i) => i.decision));
+      const resolution =
+        decisions.size > 1
+          ? "conflicted"
+          : decisions.size === 1
+            ? [...decisions][0]!
+            : "unresolved";
+      return [
+        {
+          trigger: uid,
+          before,
+          after,
+          resolution,
+          decisions: active.map((i) => i.uid),
+        },
+      ];
+    });
+}
 export function activeRecords(
   s: Snapshot,
   r: Requirement,
   scope: string,
 ): DurableRecord[] {
-  const records = s.records.filter(
-    (rec) =>
-      rec.scope === scope && rec.subjects.some((sub) => sub.uid === r.uid),
-  );
+  const records = index(s).bySubject.get(`${scope}\0${r.uid}`) ?? [];
   const superseded = new Set(records.flatMap((rec) => rec.supersedes));
   return records.filter((rec) => !superseded.has(rec.uid));
 }
@@ -93,13 +146,13 @@ export function projection(
   scope = "project",
   artifact?: { repository: string; revision: string },
 ): Projection {
+  const cacheKey = `${r.uid}\0${scope}\0${stable(artifact ?? null)}`;
+  const cached = index(s).projections.get(cacheKey);
+  if (cached) return cached;
   const current = activeRecords(s, r, scope);
-  const records = s.records
-    .filter(
-      (rec) =>
-        rec.scope === scope && rec.subjects.some((sub) => sub.uid === r.uid),
-    )
-    .map((rec) => ({ ...rec, currency: currency(s, rec, r, artifact) }));
+  const records = (index(s).bySubject.get(`${scope}\0${r.uid}`) ?? []).map(
+    (rec) => ({ ...rec, currency: currency(s, rec, r, artifact) }),
+  );
   const usable = current.filter(
     (rec) => currency(s, rec, r, artifact) === "current",
   );
@@ -172,13 +225,15 @@ export function projection(
     : currencies.length === 0 || currencies.includes("unknown")
       ? "unknown"
       : "current";
-  return {
+  const value: Projection = {
     approval,
     implementation: assessment("implementation"),
     verification,
     currency: status,
     records,
   };
+  index(s).projections.set(cacheKey, value);
+  return value;
 }
 export function assertPassing(s: Snapshot, record: DurableRecord): void {
   if (
@@ -249,8 +304,9 @@ export function summary(
   s: Snapshot,
   scope = "project",
   artifact?: { repository: string; revision: string },
+  selection = selectedRequirements(s),
 ) {
-  const selected = s.requirements.filter(
+  const selected = selection.filter(
     (r) => r.disposition === "in_scope" && r.lifecycle !== "retired",
   );
   const rows = selected.map((r) => projection(s, r, scope, artifact));
@@ -258,8 +314,9 @@ export function summary(
     scope,
     artifact: artifact ?? null,
     denominator: selected.length,
-    total: s.requirements.length,
-    exclusions: s.requirements.length - selected.length,
+    total: selection.length,
+    outside_selection: s.requirements.length - selection.length,
+    exclusions: selection.length - selected.length,
     approved: rows.filter((p) => p.approval === "approved").length,
     implemented: rows.filter(
       (p) => p.implementation === "implemented" && p.currency === "current",

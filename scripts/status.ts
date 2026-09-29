@@ -6,85 +6,79 @@ const evidence: Record<string, string> = {
   PAR: "CommonMark block parser, schema checks, canonical fixtures; core/contracts tests",
   AUT: "Authoring plans, UUID moves/clones/successors, source tokens; core/contracts tests + browser smoke",
   GIT: "Commit reads, endpoint/merge-base comparison, worktrees/SHA-256; core/contracts tests",
-  BAS: "Immutable exact-commit manifests and as-of reads; core tests",
-  TRC: "Typed graph validation, causal impact queries, coverage projection; core tests",
+  BAS: "Exact-commit manifests, configurable gates and subset projections with complete dependencies; core/policy/index tests",
+  TRC: "Graph validation, causal paths, exact impact decisions/reconciliation and filtered matrices; core/policy/workflows tests",
   REV: "Revision-bound reviews, dependency currency, explicit conflict resolution; core tests",
   EVD: "Obligations, mapped imports, explicit assessments, artifact currency; interchange tests",
-  VAL: "Deterministic findings and CLI result envelope; core/contracts tests",
-  RPT: "Register/search and offline inventories/portable exports; interchange tests",
+  VAL: "Located findings, advisory severities, retained expiring waivers and evaluation provenance; policy/contracts tests",
+  RPT: "Indexed queries, filtered inventory/comparison/matrix/gaps, portable export/restore; workflows/index tests",
   UI: "React register, editor, preview, decisions, compare, trace and baseline views; browser smoke",
-  MIG: "Deterministic staging import for CSV/JSON/simple tables; interchange tests",
+  MIG: "Deterministic CSV/JSON/table/labeled-block/overlay staging, guarded replay and native restore; workflows/interchange tests",
   SEC: "Restricted parsers, escaped output, loopback authentication, safe paths; core/interchange/server tests",
   QUA: "Shared core, digest guards, recovery journal and independent snapshots; all test suites",
-  PER: "No SRS-scale performance acceptance evidence yet",
+  PER: "Full-scale raw samples, p95, memory and reproducible fixture; docs/performance.md",
   UX: "Quickstart, native controls, focus styles, responsive layouts and appearance modes; browser smoke only",
-  DST: "Source distribution, lockfile, existing license, guides and CI configuration",
+  DST: "Pinned Node archive, checksums/source/dependency provenance, GPL source/docs/schema terms, compatibility/install guides and CI",
 };
-const missing = new Set([
-  "RMS-TRC-005",
-  "RMS-VAL-003",
-  "RMS-VAL-004",
-  "RMS-MIG-005",
-  "RMS-MIG-008",
-]);
+let benchmark:
+  | {
+      p95_ms: { cold: number; query: number; edit: number; comparison: number };
+      max_rss_bytes: number;
+    }
+  | undefined;
+try {
+  benchmark = JSON.parse(await readFile("docs/benchmark-final.json", "utf8"));
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+}
 const partial: Record<string, string> = {
-  "RMS-INI-005":
-    "Custom relation schemas and advanced declarative gates are not implemented",
-  "RMS-PAR-002":
-    "Block locations exist; exact YAML-key columns and exhaustive grammar fixtures remain",
-  "RMS-AUT-009":
-    "Change records accept details, but exact before/after binding and required-change policy are not enforced",
-  "RMS-GIT-005":
-    "Parent comparisons implemented; history is bounded and UI history navigation is incomplete",
-  "RMS-BAS-003":
-    "Target validation implemented; configurable baseline eligibility gates remain",
-  "RMS-TRC-003":
-    "Basic relation matrix; complete status/baseline matrix filtering remains",
-  "RMS-TRC-005":
-    "Impact record schema exists; exact change-pair acknowledgments do not yet resolve currency",
-  "RMS-EVD-006":
-    "JUnit and native subset supported; full lossless producer/parameter interoperability remains",
-  "RMS-EVD-012":
-    "Normative files are bounded; managed evidence attachment selection/copy is not implemented",
-  "RMS-RPT-002":
-    "Detail includes decisions and links; full history/context/evidence navigation remains",
-  "RMS-RPT-003":
-    "Inventory exports implemented; dedicated comparison/matrix/gap report templates remain",
-  "RMS-RPT-005":
-    "Portable captured files/digests included; archive import and independent restore verification remain",
-  "RMS-MIG-002":
-    "CSV/JSON/simple pipe tables supported; labeled-block and complete native imports remain",
-  "RMS-MIG-004":
-    "Deterministic staging and guarded source/mapping replay implemented; comprehensive native re-import remains",
-  "RMS-SEC-010":
-    "Limits and journal recovery exist; cancellation within two seconds and exhaustive fault injection remain",
-  "RMS-SEC-012":
-    "Dependency inventory/limitations documented; private reporting channel must be selected",
   "RMS-QUA-002":
-    "Recoverable replacement implemented; every-phase power-loss evidence across OSes remains",
-  "RMS-QUA-003":
-    "Explicit guarded recovery implemented; crash/lock edge cases need expanded acceptance evidence",
-  "RMS-QUA-006":
-    "Golden vectors and line-ending tests exist; cross-platform CI execution evidence remains",
+    "Every journal phase has complete/rollback injection tests; physical power-loss durability and Windows directory sync remain acceptance limits",
   "RMS-UX-002":
-    "Native keyboard controls and responsive styles exist; screen-reader/WCAG audit remains",
-  "RMS-DST-001":
-    "Existing GPLv3 retained; documentation/format license and final distribution designation remain owner decisions",
+    "Native keyboard controls, named dialogs and responsive themes verified; full screen-reader/WCAG 2.2 AA audit remains",
+  "RMS-SEC-012":
+    "Dependency/support/limitations documented; GitHub private reporting must be enabled before public distribution",
   "RMS-DST-002":
-    "Source/Node distribution works; signed installers and tested release support matrix remain",
-  "RMS-DST-005":
-    "Lockfile has dependency integrity; release artifacts/checksums/provenance are not published",
+    "Independent pinned Node archive tested locally; platform evidence is scoped to the exact CI run/runtime matrix",
 };
-const heading = `# Implementation status and SRS traceability\n\nThis is an executable **preview**, not an accepted V1 release. The original SRS is unchanged and all Must requirements remain in scope. No row below is a release acceptance claim.\n\n## Local verification\n\n- Windows 11 x64; Node 22.17.1; npm 11.11.0; Git 2.49.0.windows.1.\n- TypeScript check and production build pass.\n- 28 automated integration/conformance tests pass.\n- Core/server statement coverage is 76.91%; the React UI is checked separately in the browser.\n- npm audit: zero reported vulnerabilities at implementation time.\n- Browser smoke: local authentication, register/detail, Markdown preview, file preview, save, reload, comparison, source-conflict draft preservation, light/dark appearance, and narrow-screen overflow checks. Synthetic demo data only.\n- Multi-OS CI is configured but not executed here. No performance, WCAG, security-certification or release-distribution claim is made.\n\n## Remaining work before V1\n\n1. Advanced declarative policy, narrow expiring waivers, configurable baseline eligibility, and exact revision-pair change/impact decisions.\n2. Ordered migration overlays, labeled-block mappings, complete native interoperability, explicit upgrades, and archive restore.\n3. Full report/matrix filters, history navigation, attachment management, and complete input-location diagnostics.\n4. Performance indexing and the specified 10,000-requirement benchmark; cancellation/progress guarantees and configurable resource limits.\n5. Every-phase fault injection, cross-platform filesystem/object edge cases, full security review, keyboard/screen-reader/WCAG evidence, and final platform support matrix.\n6. Public packaging, signed release provenance/checksums, private vulnerability reporting, governance and final licensing decisions.\n\nThe default discovery tree is requirements/ to avoid treating the source SRS as marked native data. Format/canonicalization are documented preview contracts; freeze only after full conformance review. Some UI workflows use explicit JSON for advanced custom fields/import mappings. No authority or verification status is inferred from imported claims.\n\n## Requirement-level inventory\n\n${ids.length} numbered requirements are tracked. “Preview implementation” means a relevant code path exists and has group-level evidence; it does not mean every clause has a dedicated passing acceptance test.\n\n| Requirement | Status | Evidence or remaining limitation |\n|---|---|---|\n`;
+const heading = `# Implementation status and SRS traceability
+
+This is an executable **preview**, not an accepted V1 release. The original SRS is unchanged; every Must requirement remains in scope. Group-level tests do not establish every clause's release acceptance.
+
+## Verification
+
+- Windows 11 x64, Node 22.17.1, npm 11.11.0, Git 2.49.0.windows.1.
+- TypeScript check, production build and 60 automated tests pass.
+- Core/server statement coverage is 81.44%; worker subprocesses and React UI are verified separately.
+- npm audit reports zero known vulnerabilities at the recorded check.
+- Tests cover exact impact/change applicability, reconciliation, expiry/waivers, baseline gates/subsets, native evidence, overlays/labeled blocks, portable integrity/restore, binary attachments, filtered reports, index captures, API cancellation and every recovery journal phase.
+- Browser verification uses synthetic data. No adopter sources or credentials appear in screenshots.
+- Windows/Linux/macOS CI validates generated schemas, conformance, tests and package artifacts on each PR. Refer to the exact PR run for execution results.
+- Raw scale samples and methodology are in [performance.md](performance.md). ${benchmark ? `Final p95: cold ${(benchmark.p95_ms.cold / 1000).toFixed(2)}s, query ${benchmark.p95_ms.query.toFixed(1)}ms, incremental edit ${(benchmark.p95_ms.edit / 1000).toFixed(2)}s, comparison ${(benchmark.p95_ms.comparison / 1000).toFixed(2)}s; inventory peak ${(benchmark.max_rss_bytes / 1048576).toFixed(0)}MiB.` : "Final measurement pending."}
+
+## Before accepting or publishing V1
+
+1. Complete the manual screen-reader, zoom/reflow and WCAG 2.2 AA evidence in accessibility.md.
+2. Review physical power-loss limits and acceptance evidence on the supported filesystem/platform matrix.
+3. Enable GitHub private vulnerability reporting, choose a support period, and publish clean-source package/checksum/provenance artifacts through the owner's release process.
+4. Review full conformance and the benchmark environment before freezing format 1 and rms-c14n-1. Expanded preview policies conservatively invalidate older governance-bound decisions; compatibility is documented in release.md.
+
+These acceptance/distribution obligations do not drop SRS clauses. The product provides policy, authoring, history, baseline, trace, evidence, validation, migration, restore, reporting and recovery workflows. Some advanced metadata/mappings use explicit JSON. No imported status or actor claim becomes authenticated approval.
+
+## Requirement inventory
+
+${ids.length} numbered requirements are tracked. Implemented/group evidence identifies concrete code and test groups; it is not per-clause certification.
+
+| Requirement | Status | Evidence or acceptance limitation |
+|---|---|---|
+`;
 const rows = ids.map((id) => {
   const family = id.split("-")[1];
-  const status = missing.has(id)
-    ? "Not implemented / incomplete semantics"
-    : partial[id]
-      ? "Partial"
-      : ["PER", "UX", "DST"].includes(family)
-        ? "Unverified release obligation"
-        : "Preview implementation";
+  const status = partial[id]
+    ? "Acceptance limitation"
+    : ["PER", "UX", "DST"].includes(family)
+      ? "Implementation/evidence; release review required"
+      : "Implemented; group evidence";
   return `| ${id} | ${status} | ${partial[id] ?? evidence[family]} |`;
 });
 await writeFile("docs/status.md", heading + rows.join("\n") + "\n");

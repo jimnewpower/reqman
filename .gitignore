@@ -8,3 +8,4 @@ test-results/
 /.requirements/cache/
 /.requirements/recovery/
 /.requirements/reports/
+/release-artifacts/

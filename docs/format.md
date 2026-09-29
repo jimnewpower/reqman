@@ -55,6 +55,6 @@ Human ID changes are administrative. A move into another document changes govern
 
 ## Records and writing
 
-Records use YAML front matter in UUID-named Markdown files. The writer stores rationale in metadata; a prose body is accepted when that key is absent. Reviews, assessments, evidence, verification definitions, changes and impact decisions use documented schemas. Dependency snapshots capture prerequisite/parent identities and fingerprints; full relation-path persistence remains a release gap. Impact query results contain causal paths.
+The serializer emits indented JSON inside YAML front matter (JSON is a YAML 1.2 subset); handwritten restricted YAML remains supported. Records use YAML front matter in UUID-named Markdown files. The writer stores rationale in metadata; a prose body is accepted when that key is absent. Reviews, assessments, evidence, verification definitions, changes and impact decisions use documented schemas. Dependency snapshots capture prerequisite/parent identities and fingerprints; Change/impact records store exact before/after subjects; impacts also retain causal relation paths. Managed attachments store paths, sizes and SHA-256 digests. The generated record schema includes all optional fields.
 
 Edits preserve unrelated byte ranges, BOMs and existing newline convention. The selected block may be normalized. New files use LF. Missing final newlines outside the edit remain unchanged. Metadata values containing `-->` are rejected. Clones and successors receive fresh identities without copied approval/evidence state.

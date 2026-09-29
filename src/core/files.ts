@@ -10,11 +10,13 @@ import {
   stat,
 } from "node:fs/promises";
 import path from "node:path";
+import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { minimatch } from "minimatch";
 import { z } from "zod";
 import { bytesDigest, relativePath, utf8, uuid, readSchema } from "./data.js";
 import { FILE_LIMIT, Problem } from "./model.js";
+import { checkpoint, atomic, cancellation, limits } from "./operations.js";
 
 export async function safePath(
   root: string,
@@ -59,11 +61,23 @@ export async function safePath(
 }
 export async function readBounded(
   file: string,
-  limit = FILE_LIMIT,
+  limit = limits().fileBytes,
 ): Promise<Buffer> {
-  const handle = await open(file, "r");
+  cancellation();
+  const handle = await open(
+    file,
+    constants.O_RDONLY |
+      (process.platform === "win32" ? 0 : constants.O_NOFOLLOW),
+  );
   try {
-    const size = (await handle.stat()).size;
+    const info = await handle.stat();
+    if (!info.isFile())
+      throw new Problem(
+        2,
+        "PATH_FILE_TYPE",
+        `Expected a regular file: ${file}`,
+      );
+    const size = info.size;
     if (size > limit)
       throw new Problem(
         3,
@@ -81,6 +95,87 @@ export async function readBounded(
     return bytes.subarray(0, bytesRead);
   } finally {
     await handle.close();
+  }
+}
+
+// One capture shares parent checks, then verifies those parents before returning any data.
+export class CapturePaths {
+  private parents = new Map<string, Promise<{ dev: number; ino: number }>>();
+  constructor(private root: string) {}
+  private async parent(relative: string): Promise<void> {
+    if (!relative) return;
+    let pending = this.parents.get(relative);
+    if (!pending) {
+      pending = (async () => {
+        const parent = relative.includes("/")
+          ? relative.slice(0, relative.lastIndexOf("/"))
+          : "";
+        await this.parent(parent);
+        const file = path.join(this.root, relative);
+        const info = await lstat(file);
+        if (info.isSymbolicLink() || !info.isDirectory())
+          throw new Problem(
+            2,
+            "PATH_LINK",
+            `Unsafe capture directory: ${relative}`,
+          );
+        const actual = await realpath(file);
+        const inside = path.relative(this.root, actual);
+        if (inside.startsWith("..") || path.isAbsolute(inside))
+          throw new Problem(
+            2,
+            "PATH_ESCAPE",
+            `Capture directory escapes repository: ${relative}`,
+          );
+        return { dev: info.dev, ino: info.ino };
+      })();
+      this.parents.set(relative, pending);
+    }
+    await pending;
+  }
+  async resolve(relative: string): Promise<string> {
+    if (
+      !relativePath.safeParse(relative).success ||
+      relative
+        .split("/")
+        .some(
+          (p) =>
+            /[. ]$/.test(p) ||
+            /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p),
+        )
+    )
+      throw new Problem(
+        2,
+        "PATH_UNSAFE",
+        `Unsafe or nonportable capture path: ${relative}`,
+      );
+    await this.parent(
+      relative.includes("/")
+        ? relative.slice(0, relative.lastIndexOf("/"))
+        : "",
+    );
+    const file = path.join(this.root, relative);
+    const info = await lstat(file);
+    if (info.isSymbolicLink() || !info.isFile())
+      throw new Problem(2, "PATH_LINK", `Unsafe capture file: ${relative}`);
+    return file;
+  }
+  async verify(): Promise<void> {
+    for (const [relative, pending] of this.parents) {
+      const expected = await pending;
+      const info = await lstat(path.join(this.root, relative));
+      if (
+        info.isSymbolicLink() ||
+        !info.isDirectory() ||
+        info.dev !== expected.dev ||
+        info.ino !== expected.ino
+      )
+        throw new Problem(
+          4,
+          "CAPTURE_CHANGED",
+          `Capture directory changed: ${relative}. Retry.`,
+        );
+    }
   }
 }
 export async function optionalBytes(file: string): Promise<Buffer | null> {
@@ -108,11 +203,11 @@ export async function walk(
     }
     if (entry.isDirectory()) result.push(...(await walk(root, rel, excluded)));
     else if (entry.isFile()) result.push(rel);
-    if (result.length > 250000)
+    if (result.length > limits().files)
       throw new Problem(
         3,
         "LIMIT_FILES",
-        "Repository inventory exceeds 250,000 files.",
+        `Repository inventory exceeds ${limits().files} files. Use an explicit --max-files override.`,
       );
   }
   return result.sort();
@@ -198,21 +293,33 @@ async function durable(file: string, bytes: string | Buffer): Promise<void> {
     await handle.close();
   }
 }
+async function syncDirectory(directory: string): Promise<void> {
+  if (process.platform === "win32") return;
+  const handle = await open(directory, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
 async function replace(file: string, bytes: Buffer | null): Promise<void> {
   if (bytes === null) {
     await unlink(file);
+    await syncDirectory(path.dirname(file));
     return;
   }
   await mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.${randomUUID()}.tmp`;
   await durable(temp, bytes);
   await rename(temp, file);
+  await syncDirectory(path.dirname(file));
 }
 export class Writer {
   constructor(
     private root: string,
     private recordsRoot: string,
     private readOnly = false,
+    private fault?: (phase: string, entry?: number) => void,
   ) {}
   async pending(): Promise<WritePlan[]> {
     const dir = await safePath(this.root, `${this.recordsRoot}/recovery`);
@@ -250,6 +357,7 @@ export class Writer {
     }
   }
   async apply(plan: WritePlan): Promise<void> {
+    await checkpoint("Checking write plan");
     plan = parsePlan(plan);
     if (this.readOnly)
       throw new Problem(
@@ -283,11 +391,19 @@ export class Writer {
         JSON.stringify({ pid: process.pid, started: new Date().toISOString() }),
       );
       await lock.sync();
+      this.fault?.("locked");
       await this.preflight(plan);
+      this.fault?.("preflight");
+      cancellation();
       const journal = path.join(dir, `${plan.uid}.json`);
       await durable(journal, JSON.stringify(plan));
+      await syncDirectory(dir);
+      this.fault?.("prepared");
+      atomic(true);
       plan.state = "applying";
       await replace(journal, Buffer.from(JSON.stringify(plan)));
+      this.fault?.("applying");
+      let entryIndex = 0;
       for (const e of plan.entries) {
         const file = await safePath(this.root, e.path);
         if (
@@ -303,11 +419,16 @@ export class Writer {
           file,
           e.after === null ? null : Buffer.from(e.after, "base64"),
         );
+        this.fault?.("entry", entryIndex++);
       }
       plan.state = "completed";
       await replace(journal, Buffer.from(JSON.stringify(plan)));
+      this.fault?.("completed");
       await unlink(journal);
+      await syncDirectory(dir);
+      this.fault?.("cleaned");
     } finally {
+      atomic(false);
       await lock.close();
       await unlink(lockPath);
     }
@@ -387,6 +508,7 @@ export class Writer {
     }
   }
   async recover(action: "complete" | "rollback"): Promise<number> {
+    await checkpoint("Checking recovery journal");
     if (this.readOnly)
       throw new Problem(
         4,

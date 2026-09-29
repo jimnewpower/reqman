@@ -18,7 +18,7 @@ node dist/cli.js --repo /project recover --action rollback
 
 Recovery accepts only files matching before/after bytes. Any unrelated intervening edit blocks recovery; preserve it and reconcile manually. Live writer locks cannot be taken over. Orphan recovery checks the recorded process ID. Never delete a journal merely to make validation pass.
 
-Noncooperating external editors can still race in the narrow final-check/rename interval. Power-loss durability and interruption injection at every filesystem boundary have not been certified. Retain independent backups during preview use.
+Noncooperating external editors can still race in the narrow final-check/rename interval. Tests inject interruptions at locked, preflight, prepared, applying, each replacement, completed and cleaned phases, for complete and rollback recovery. Directory entries are synced on POSIX; Node does not expose equivalent Windows directory sync. Physical power-loss durability at every filesystem boundary has not been certified. Retain independent backups during preview use.
 
 ## Local boundary
 
@@ -26,10 +26,10 @@ The service binds only to 127.0.0.1, validates Host/Origin, rejects cross-site r
 
 React rendering disables raw HTML and replaces images with labels. CSP blocks remote assets, framing and executable content. Exported HTML escapes repository text. YAML/XML/Git metadata are untrusted input. Git uses argument arrays with hooks/fsmonitor/network protocols/implicit lazy fetch disabled; no diff or textconv helpers are executed.
 
-Limits: 10 MiB Markdown/YAML/HTTP requests, 100 MiB CLI imports, 110 MiB historical batch reads, depth 128, 100,000 requirements, 1,000,000 edges, 250,000 discovered files, 100,000 impact rows and 200 history commits. Limits fail explicitly. Configurable overrides, streaming cancellation and scale-optimized indexing remain release work.
+Defaults: 10 MiB per authoritative file, 100 MiB snapshot/import, nesting depth 128, 100,000 requirements, 1,000,000 edges, 250,000 files, 100,000 impact rows and 200 history commits. CLI overrides and doctor expose effective limits; no silent truncation is treated as complete. Analysis and import parsing run in a cancellable worker; prepared plans apply in the main process with source guards and an explicit atomic phase. Derived parsed documents/records and search/graph indexes are in-memory and disposable. Recovery journals remain separate operational safety data. See guide.md and performance.md.
 
 Core use is offline after dependency installation. There is no telemetry, self-update, remote account, hosted service or adopter build integration. Dependencies are locked; npm audit is an advisory check, not a security certification.
 
 Local evidence is Windows 11 x64 / Node 22.17.1 / npm 11.11.0 and the installed Git version recorded in status.md. The browser smoke test uses Codex's in-app browser. Linux/macOS CI is configured but has not run from this checkout. No released platform guarantee is claimed.
 
-Private vulnerability reporting, supported release policy and final documentation/data-format license terms must be designated before public distribution. Do not publish project data or session keys in public issues.
+The private-reporting setting is a pre-distribution gate documented in ../SECURITY.md. Package provenance/checksums and licensing are documented in release.md. Never publish project data or session keys in public issues.

@@ -1213,3 +1213,14 @@ html[data-theme="dark"] .alert {
     width: 100%;
   }
 }
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+.filter-bar label {
+  min-width: 8rem;
+  flex: 1;
+}

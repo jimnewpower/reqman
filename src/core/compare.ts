@@ -1,5 +1,11 @@
 import { digest, stable } from "./data.js";
-import { type Snapshot, type Requirement } from "./model.js";
+import {
+  subject,
+  selectedRequirements,
+  type Snapshot,
+  type Requirement,
+} from "./model.js";
+import { limits } from "./operations.js";
 
 export interface Change {
   uid: string;
@@ -10,8 +16,8 @@ export interface Change {
   fields: string[];
 }
 export function compare(base: Snapshot, head: Snapshot) {
-  const before = new Map(base.requirements.map((r) => [r.uid, r]));
-  const after = new Map(head.requirements.map((r) => [r.uid, r]));
+  const before = new Map(selectedRequirements(base).map((r) => [r.uid, r]));
+  const after = new Map(selectedRequirements(head).map((r) => [r.uid, r]));
   const changes: Change[] = [];
   for (const uid of [...new Set([...before.keys(), ...after.keys()])].sort()) {
     const a = before.get(uid);
@@ -64,9 +70,10 @@ export function compare(base: Snapshot, head: Snapshot) {
       });
   }
   const baseRecords = new Map(base.records.map((r) => [r.uid, r]));
+  const headRecords = new Map(head.records.map((r) => [r.uid, r]));
   const alteredRecords = base.records
     .filter((r) => {
-      const other = head.records.find((h) => h.uid === r.uid);
+      const other = headRecords.get(r.uid);
       return (
         !other ||
         digest({ ...r, path: undefined }) !==
@@ -89,7 +96,7 @@ export function compare(base: Snapshot, head: Snapshot) {
       .map((c) => c.uid),
   };
 }
-export function impact(base: Snapshot, head: Snapshot) {
+export function impact(base: Snapshot, head: Snapshot, scope = "project") {
   const diff = compare(base, head);
   const causes = diff.changes.filter((c) =>
     c.classes.some((cls) =>
@@ -108,33 +115,71 @@ export function impact(base: Snapshot, head: Snapshot) {
     path: string[];
     before: string | null;
     after: string | null;
+    changes: {
+      before: ReturnType<typeof subject> | null;
+      after: ReturnType<typeof subject> | null;
+    }[];
+    resolution: string;
+    decisions: string[];
   }[] = [];
   const all = [...base.requirements, ...head.requirements];
+  const reverse = new Map<string, Set<string>>();
+  const currentRequirements = new Map(head.requirements.map((r) => [r.uid, r]));
+  const superseded = new Set(head.records.flatMap((item) => item.supersedes));
+  const impactRecords = head.records.filter(
+    (item) =>
+      item.kind === "impact" &&
+      item.scope === scope &&
+      !superseded.has(item.uid),
+  );
+  for (const r of all)
+    for (const edge of r.relations)
+      if (["refines", "depends_on"].includes(edge.type)) {
+        const dependents = reverse.get(edge.target) ?? new Set<string>();
+        dependents.add(r.uid);
+        reverse.set(edge.target, dependents);
+      }
   for (const cause of causes) {
     const seen = new Set([cause.uid]);
     const queue = [[cause.uid]];
-    while (queue.length) {
-      const path = queue.shift()!;
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      const path = queue[cursor];
       const target = path.at(-1)!;
-      for (const r of all)
-        if (
-          !seen.has(r.uid) &&
-          r.relations.some(
-            (e) =>
-              ["refines", "depends_on"].includes(e.type) && e.target === target,
-          )
-        ) {
-          seen.add(r.uid);
-          const next = [...path, r.uid];
+      for (const uid of reverse.get(target) ?? [])
+        if (!seen.has(uid)) {
+          seen.add(uid);
+          const next = [...path, uid];
           queue.push(next);
+          const pair = {
+            before: cause.before ? subject(cause.before) : null,
+            after: cause.after ? subject(cause.after) : null,
+          };
+          const current = currentRequirements.get(uid);
+          const decisions = impactRecords.filter(
+            (item) =>
+              current &&
+              item.subjects.some(
+                (sub) => stable(sub) === stable(subject(current)),
+              ) &&
+              item.changes?.some((change) => stable(change) === stable(pair)),
+          );
+          const choices = new Set(decisions.map((item) => item.decision));
           results.push({
-            uid: r.uid,
+            uid,
             trigger: cause.uid,
             path: next,
             before: cause.before?.record ?? null,
             after: cause.after?.record ?? null,
+            changes: [pair],
+            resolution:
+              choices.size > 1
+                ? "conflicted"
+                : choices.size === 1
+                  ? [...choices][0]!
+                  : "unresolved",
+            decisions: decisions.map((item) => item.uid),
           });
-          if (results.length >= 100000)
+          if (results.length >= limits().impacts)
             return {
               complete: false,
               truncated: true,

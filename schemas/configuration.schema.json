@@ -177,6 +177,132 @@
             "require_acceptance": {
               "type": "boolean",
               "default": false
+            },
+            "require_change_record": {
+              "type": "boolean",
+              "default": false
+            },
+            "validation": {
+              "type": "object",
+              "properties": {
+                "rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "POLICY_OWNER",
+                          "POLICY_TAGS",
+                          "POLICY_FIELD",
+                          "POLICY_VERIFICATION",
+                          "POLICY_IMPLEMENTATION",
+                          "POLICY_APPROVAL"
+                        ]
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": [
+                          "error",
+                          "warning",
+                          "off"
+                        ]
+                      },
+                      "field": {
+                        "$ref": "#/definitions/configuration/properties/project/properties/name"
+                      },
+                      "specification": {
+                        "$ref": "#/definitions/configuration/properties/project/properties/name"
+                      },
+                      "lifecycle": {
+                        "type": "string",
+                        "enum": [
+                          "draft",
+                          "active",
+                          "retired"
+                        ]
+                      },
+                      "disposition": {
+                        "type": "string",
+                        "enum": [
+                          "in_scope",
+                          "deferred",
+                          "not_applicable",
+                          "transferred"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "severity"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "default": []
+                },
+                "waivers": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "uid": {
+                        "$ref": "#/definitions/configuration/properties/project/properties/uid"
+                      },
+                      "rule": {
+                        "$ref": "#/definitions/configuration/properties/policy/properties/validation/properties/rules/items/properties/code"
+                      },
+                      "subject": {
+                        "$ref": "#/definitions/configuration/properties/project/properties/uid"
+                      },
+                      "reason": {
+                        "$ref": "#/definitions/configuration/properties/project/properties/name"
+                      },
+                      "issuer": {
+                        "$ref": "#/definitions/configuration/properties/project/properties/name"
+                      },
+                      "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "required": [
+                      "uid",
+                      "rule",
+                      "subject",
+                      "reason",
+                      "issuer"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "default": []
+                }
+              },
+              "additionalProperties": false,
+              "default": {}
+            },
+            "baseline": {
+              "type": "object",
+              "properties": {
+                "approval": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "implementation": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "verification": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "currency": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false,
+              "default": {}
             }
           },
           "additionalProperties": false,

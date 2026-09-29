@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "timestamp": "2026-09-29T21:17:38.682Z",
+  "tool": "0.1.0-preview",
+  "canonicalization": "rms-c14n-1",
+  "environment": {
+    "os": "win32 10.0.26200",
+    "cpu": "Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz",
+    "cores": 12,
+    "memory_bytes": 34187558912,
+    "node": "v22.17.1",
+    "git": "git version 2.49.0.windows.1",
+    "storage": "Local temporary filesystem; storage model and cache state must be recorded separately"
+  },
+  "fixture": {
+    "root": "E:\\temp\\reqman-benchmark-HB08W8",
+    "requirements": 10000,
+    "documents": 500,
+    "links": 50000,
+    "records": 20000,
+    "changed": 1000
+  },
+  "samples": {
+    "cold": [
+      44292.80850000001
+    ],
+    "queries": [
+      35.34709999998449,
+      26.817600000009406,
+      26.234499999991385,
+      24.37630000000354,
+      24.34320000000298,
+      26.500399999989895,
+      27.34880000000703,
+      28.022300000011455,
+      26.951800000009825,
+      23
+    ],
+    "edits": [
+      23697.304999999993
+    ],
+    "comparison": [
+      45213.56169999996
+    ]
+  },
+  "p95_ms": {
+    "cold": 44292.80850000001,
+    "query": 35.34709999998449,
+    "edit": 23697.304999999993,
+    "comparison": 45213.56169999996
+  },
+  "max_rss_bytes": 377483264,
+  "full_sample_counts": false
+}

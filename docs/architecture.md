@@ -6,6 +6,8 @@ Reqman is a local tool. TypeScript domain services are shared by the command lin
 
 The core owns parsing, versioned canonicalization, validation, immutable snapshot interpretation, decision projections, and write plans. CLI and HTTP handlers are adapters. File writes use optimistic digests and a recovery journal. Git is invoked through argument arrays for object reads, never a shell and never automatic repository mutations. The browser treats all repository content as untrusted.
 
-Node 22.17+ is the initial development runtime. Dependencies are locked. Initial distribution is source plus npm install/build; standalone executable packaging and supported-platform release evidence are separate release gates. The original SRS remains the full target. Preview implementation does not imply V1 acceptance.
+Node 22.17+ is the initial development runtime. Dependencies are locked. Distribution is a pinned Node archive built from source, with bundled UI/worker, integrity checksums, source provenance and dependency inventory. Platform acceptance evidence is tracked separately. The original SRS remains the full target. Preview implementation does not imply V1 acceptance.
 
-The existing GPLv3 license is retained. Confirm the intended `only` versus `or-later` designation and separate data-format/documentation terms before public packaging.
+The existing GPLv3 license is retained. The package declares GPL-3.0-only for source, docs and schemas; this preserves the existing license rather than introducing new terms. Adopter data ownership is independent of the format.
+
+Analysis and import parsing run in a dedicated worker so the HTTP/CLI adapters can acknowledge cancellation during CPU-heavy parsing. Worker indexes are disposable; cancellation terminates and recreates them. Applying a validated plan remains in the parent with optimistic guards and recovery journaling. Full captures read/verify selected bytes; explicit incremental document events reuse the previous labeled captured view and revalidate the graph. Writes, baseline creation and exports request full captures.

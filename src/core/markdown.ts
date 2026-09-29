@@ -10,8 +10,11 @@ import {
   readSchema,
   setOf,
   yaml,
+  locateYaml,
 } from "./data.js";
 import { documentSchema, requirementSchema } from "./schema.js";
+import type { z } from "zod";
+import { limits } from "./operations.js";
 import {
   C14N,
   FILE_LIMIT,
@@ -24,18 +27,22 @@ import {
 
 const parser = unified().use(remarkParse);
 export function tree(text: string): Root {
-  if (Buffer.byteLength(text) > FILE_LIMIT)
+  if (Buffer.byteLength(text) > limits().fileBytes)
     throw new Problem(
       3,
       "LIMIT_FILE",
-      "Markdown exceeds the 10 MiB file limit.",
+      `Markdown exceeds ${limits().fileBytes} bytes. Use --max-file-mib for an explicit override.`,
     );
   const root = parser.parse(text);
   const pending: [Node, number][] = [[root, 0]];
   while (pending.length) {
     const [node, depth] = pending.pop()!;
-    if (depth > 128)
-      throw new Problem(3, "LIMIT_DEPTH", "Markdown nesting exceeds 128.");
+    if (depth > limits().depth)
+      throw new Problem(
+        3,
+        "LIMIT_DEPTH",
+        `Markdown nesting exceeds ${limits().depth}. Use --max-depth for an explicit override.`,
+      );
     if ("children" in node)
       pending.push(
         ...(node as Parent).children.map(
@@ -120,6 +127,7 @@ interface Marker {
   end: number;
   line: number;
   metadata?: unknown;
+  yamlSource?: string;
 }
 function markers(root: Root): Marker[] {
   const result: Marker[] = [];
@@ -129,15 +137,28 @@ function markers(root: Root): Marker[] {
       /^(<!-- rms-document|<!-- rms-requirement)\r?\n([\s\S]*?)\r?\n-->\s*$/.exec(
         n.value,
       );
-    if (match)
+    if (match) {
+      let metadata: unknown;
+      try {
+        metadata = yaml(match[2]);
+      } catch (error) {
+        if (error instanceof Problem) {
+          error.location = {
+            line: (error.location?.line ?? 1) + n.position.start.line,
+            column: error.location?.column ?? 1,
+          };
+        }
+        throw error;
+      }
       result.push({
         kind: match[1].endsWith("document") ? "document" : "start",
         start: n.position.start.offset!,
         end: n.position.end.offset!,
         line: n.position.start.line,
-        metadata: yaml(match[2]),
+        metadata,
+        yamlSource: match[2],
       });
-    else if (n.value.trim() === "<!-- /rms-requirement -->")
+    } else if (n.value.trim() === "<!-- /rms-requirement -->")
       result.push({
         kind: "end",
         start: n.position.start.offset!,
@@ -153,17 +174,38 @@ function markers(root: Root): Marker[] {
   }
   return result;
 }
+function markerSchema<T extends z.ZodTypeAny>(
+  schema: T,
+  marker: Marker,
+): z.output<T> {
+  try {
+    return readSchema(schema, marker.metadata);
+  } catch (error) {
+    if (error instanceof Problem) {
+      locateYaml(marker.yamlSource ?? "", error);
+      error.location!.line += marker.line;
+      const metadata = marker.metadata as { uid?: string };
+      error.subject = metadata?.uid;
+    }
+    throw error;
+  }
+}
 export function normativePaths(source: string): string[] {
+  return prepareDocument(source).paths;
+}
+export function prepareDocument(source: string) {
+  const root = tree(source.replace(/^\ufeff/, ""));
+  const parsed = markers(root);
   const result: string[] = [];
-  for (const marker of markers(tree(source.replace(/^\ufeff/, "")))) {
+  for (const marker of parsed) {
     if (marker.kind === "end") continue;
     const metadata =
       marker.kind === "document"
-        ? readSchema(documentSchema, marker.metadata)
-        : readSchema(requirementSchema, marker.metadata);
+        ? markerSchema(documentSchema, marker)
+        : markerSchema(requirementSchema, marker);
     result.push(...metadata.normative_files);
   }
-  return setOf(result);
+  return { root, markers: parsed, paths: setOf(result) };
 }
 function attachmentDigests(
   paths: string[],
@@ -232,8 +274,8 @@ function checkFields(
     }
   }
 }
-function bodyTitle(markdown: string, config: Config): string {
-  const nodes = tree(markdown).children;
+function bodyTitle(markdown: string, config: Config, parsed?: Root): string {
+  const nodes = (parsed ?? tree(markdown)).children;
   const firstHeading = nodes.find((n): n is Heading => n.type === "heading");
   if (!firstHeading || !textOf(firstHeading).trim())
     throw new Problem(
@@ -278,6 +320,7 @@ export function parseDocument(
   source: string,
   config: Config,
   files: Map<string, Buffer>,
+  prepared?: { root: Root; markers: Marker[] },
 ): Document {
   if (/^(?:<<<<<<< |=======\s*$|>>>>>>> )/m.test(source))
     throw new Problem(
@@ -287,8 +330,8 @@ export function parseDocument(
     );
   // Keep a BOM in the original bytes, but outside the parser's line/column interpretation.
   const bom = source.startsWith("\ufeff") ? 1 : 0;
-  const root = tree(source.slice(bom));
-  const all = markers(root).map((m) => ({
+  const root = prepared?.root ?? tree(source.slice(bom));
+  const all = (prepared?.markers ?? markers(root)).map((m) => ({
     ...m,
     start: m.start + bom,
     end: m.end + bom,
@@ -300,7 +343,7 @@ export function parseDocument(
       "DOCUMENT_METADATA",
       "Exactly one document metadata block must precede requirements.",
     );
-  const meta = readSchema(documentSchema, docs[0].metadata);
+  const meta = markerSchema(documentSchema, docs[0]);
   const spec = config.specifications.find((s) => s.uid === meta.specification);
   if (!spec)
     throw new Problem(
@@ -355,13 +398,21 @@ export function parseDocument(
     extensions: meta.extensions,
   });
   const requirements: Requirement[] = ranges.map(({ marker, end }) => {
-    const m = readSchema(requirementSchema, marker.metadata);
+    const m = markerSchema(requirementSchema, marker);
     checkFields(m, config);
     const markdown = source
       .slice(marker.end, end.start)
       .replace(/^\r?\n/, "")
       .replace(/\s+$/, "");
-    const title = bodyTitle(markdown, config);
+    const body: Root = {
+      type: "root",
+      children: root.children.filter(
+        (node) =>
+          node.position!.start.offset! + bom >= marker.end &&
+          node.position!.end.offset! + bom <= end.start,
+      ),
+    };
+    const title = bodyTitle(markdown, config, body);
     const fields = (cls: string) =>
       Object.fromEntries(
         Object.entries(m.fields).filter(
@@ -377,14 +428,7 @@ export function parseDocument(
       );
     const definition = digest({
       version: C14N,
-      body: canonicalMarkdown(markdown, true, references, {
-        type: "root",
-        children: root.children.filter(
-          (node) =>
-            node.position!.start.offset! + bom >= marker.end &&
-            node.position!.end.offset! + bom <= end.start,
-        ),
-      }),
+      body: canonicalMarkdown(markdown, true, references, body),
       fields: fields("content"),
       files: attachmentDigests(m.normative_files, files),
     });
@@ -468,7 +512,7 @@ export function requirementBlock(
   );
 }
 export function recordMarkdown(record: unknown): string {
-  return `---\n${stringify(record, { lineWidth: 0 })}---\n`;
+  return `---\n${JSON.stringify(record, null, 2)}\n---\n`;
 }
 export function parseFrontMatter(source: string): unknown {
   const match =

@@ -1,0 +1,170 @@
+{
+  "$ref": "#/definitions/native-evidence",
+  "definitions": {
+    "native-evidence": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "number",
+          "const": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "producer": {
+          "$ref": "#/definitions/native-evidence/properties/run_id"
+        },
+        "artifact": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "$ref": "#/definitions/native-evidence/properties/run_id"
+            },
+            "revision": {
+              "$ref": "#/definitions/native-evidence/properties/run_id"
+            }
+          },
+          "required": [
+            "repository",
+            "revision"
+          ],
+          "additionalProperties": false
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/native-evidence/properties/provenance/additionalProperties"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/native-evidence/properties/provenance/additionalProperties"
+                }
+              }
+            ]
+          }
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "$ref": "#/definitions/native-evidence/properties/run_id"
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "passed",
+                  "failed",
+                  "blocked",
+                  "inconclusive",
+                  "skipped"
+                ]
+              },
+              "duration_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 0
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "subjects": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "uid": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                    },
+                    "definition": {
+                      "$ref": "#/definitions/native-evidence/properties/run_id"
+                    },
+                    "governance": {
+                      "$ref": "#/definitions/native-evidence/properties/run_id"
+                    },
+                    "canonicalization": {
+                      "$ref": "#/definitions/native-evidence/properties/run_id"
+                    }
+                  },
+                  "required": [
+                    "uid",
+                    "definition",
+                    "governance",
+                    "canonicalization"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1
+              },
+              "dependencies": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/native-evidence/properties/attempts/items/properties/subjects/items"
+                }
+              },
+              "obligations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/native-evidence/properties/attempts/items/properties/subjects/items/properties/uid"
+                },
+                "minItems": 1
+              },
+              "parameters": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/native-evidence/properties/provenance/additionalProperties"
+                }
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/native-evidence/properties/provenance/additionalProperties"
+                }
+              }
+            },
+            "required": [
+              "key",
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "schema_version",
+        "attempts"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

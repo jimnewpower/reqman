@@ -11,17 +11,31 @@
   "bin": {
     "reqman": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "schemas",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "package-lock.json"
+  ],
   "scripts": {
     "dev": "tsx src/cli.ts serve",
     "cli": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && node scripts/build.mjs && vite build",
     "test": "vitest run",
+    "pretest": "node scripts/build.mjs",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "start": "node dist/cli.js serve",
     "demo": "tsx scripts/demo.ts",
-    "schemas": "tsx scripts/schemas.ts"
+    "schemas": "tsx scripts/schemas.ts",
+    "benchmark": "tsx scripts/benchmark.ts",
+    "package": "npm run build && node scripts/package.mjs",
+    "status": "tsx scripts/status.ts"
   },
   "dependencies": {
     "commander": "13.1.0",
