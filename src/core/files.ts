@@ -101,7 +101,10 @@ export async function readBounded(
 // One capture shares parent checks, then verifies those parents before returning any data.
 export class CapturePaths {
   private parents = new Map<string, Promise<{ dev: number; ino: number }>>();
-  constructor(private root: string) {}
+  private canonicalRoot: Promise<string>;
+  constructor(root: string) {
+    this.canonicalRoot = realpath(root);
+  }
   private async parent(relative: string): Promise<void> {
     if (!relative) return;
     let pending = this.parents.get(relative);
@@ -111,7 +114,8 @@ export class CapturePaths {
           ? relative.slice(0, relative.lastIndexOf("/"))
           : "";
         await this.parent(parent);
-        const file = path.join(this.root, relative);
+        const root = await this.canonicalRoot;
+        const file = path.join(root, relative);
         const info = await lstat(file);
         if (info.isSymbolicLink() || !info.isDirectory())
           throw new Problem(
@@ -120,7 +124,7 @@ export class CapturePaths {
             `Unsafe capture directory: ${relative}`,
           );
         const actual = await realpath(file);
-        const inside = path.relative(this.root, actual);
+        const inside = path.relative(root, actual);
         if (inside.startsWith("..") || path.isAbsolute(inside))
           throw new Problem(
             2,
@@ -154,16 +158,17 @@ export class CapturePaths {
         ? relative.slice(0, relative.lastIndexOf("/"))
         : "",
     );
-    const file = path.join(this.root, relative);
+    const file = path.join(await this.canonicalRoot, relative);
     const info = await lstat(file);
     if (info.isSymbolicLink() || !info.isFile())
       throw new Problem(2, "PATH_LINK", `Unsafe capture file: ${relative}`);
     return file;
   }
   async verify(): Promise<void> {
+    const root = await this.canonicalRoot;
     for (const [relative, pending] of this.parents) {
       const expected = await pending;
-      const info = await lstat(path.join(this.root, relative));
+      const info = await lstat(path.join(root, relative));
       if (
         info.isSymbolicLink() ||
         !info.isDirectory() ||
