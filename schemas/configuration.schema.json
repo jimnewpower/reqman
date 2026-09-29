@@ -1,0 +1,230 @@
+{
+  "$ref": "#/definitions/configuration",
+  "definitions": {
+    "configuration": {
+      "type": "object",
+      "properties": {
+        "format_version": {
+          "type": "number",
+          "const": 1
+        },
+        "project": {
+          "type": "object",
+          "properties": {
+            "uid": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "uid",
+            "name"
+          ],
+          "additionalProperties": false
+        },
+        "documents": {
+          "type": "object",
+          "properties": {
+            "include": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/configuration/properties/project/properties/name"
+              },
+              "minItems": 1
+            },
+            "exclude": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/configuration/properties/project/properties/name"
+              },
+              "default": []
+            }
+          },
+          "required": [
+            "include"
+          ],
+          "additionalProperties": false
+        },
+        "records_root": {
+          "type": "string",
+          "minLength": 1,
+          "default": ".requirements"
+        },
+        "specifications": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "uid": {
+                "$ref": "#/definitions/configuration/properties/project/properties/uid"
+              },
+              "code": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+              },
+              "title": {
+                "$ref": "#/definitions/configuration/properties/project/properties/name"
+              },
+              "version_label": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "code",
+              "title"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string",
+                  "boolean",
+                  "integer",
+                  "date",
+                  "enum",
+                  "string[]",
+                  "boolean[]",
+                  "integer[]",
+                  "date[]",
+                  "enum[]"
+                ]
+              },
+              "values": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "required": {
+                "type": "boolean",
+                "default": false
+              },
+              "change_class": {
+                "type": "string",
+                "enum": [
+                  "content",
+                  "scope",
+                  "administrative"
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "change_class"
+            ],
+            "additionalProperties": false
+          },
+          "default": {}
+        },
+        "policy": {
+          "type": "object",
+          "properties": {
+            "approval": {
+              "type": "object",
+              "properties": {
+                "minimum_reviews": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 1
+                },
+                "require_distinct_author": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/configuration/properties/project/properties/name"
+                  },
+                  "default": []
+                }
+              },
+              "additionalProperties": false,
+              "default": {}
+            },
+            "removal": {
+              "type": "string",
+              "const": "require_retirement",
+              "default": "require_retirement"
+            },
+            "unknown_fields": {
+              "type": "string",
+              "const": "error",
+              "default": "error"
+            },
+            "review_impact": {
+              "type": "string",
+              "const": "conservative",
+              "default": "conservative"
+            },
+            "require_rationale": {
+              "type": "boolean",
+              "default": false
+            },
+            "require_acceptance": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "additionalProperties": false,
+          "default": {}
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/configuration/properties/extensions/additionalProperties"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/configuration/properties/extensions/additionalProperties"
+                }
+              }
+            ]
+          },
+          "default": {}
+        }
+      },
+      "required": [
+        "format_version",
+        "project",
+        "documents",
+        "specifications"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

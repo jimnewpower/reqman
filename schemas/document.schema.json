@@ -1,0 +1,83 @@
+{
+  "$ref": "#/definitions/document",
+  "definitions": {
+    "document": {
+      "type": "object",
+      "properties": {
+        "format_version": {
+          "type": "number",
+          "const": 1
+        },
+        "uid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "specification": {
+          "$ref": "#/definitions/document/properties/uid"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "context": {
+          "type": "string",
+          "enum": [
+            "normative",
+            "informative"
+          ],
+          "default": "normative"
+        },
+        "normative_files": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        },
+        "extensions": {
+          "type": "object",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/document/properties/extensions/additionalProperties"
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/definitions/document/properties/extensions/additionalProperties"
+                }
+              }
+            ]
+          },
+          "default": {}
+        }
+      },
+      "required": [
+        "format_version",
+        "uid",
+        "specification",
+        "title"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

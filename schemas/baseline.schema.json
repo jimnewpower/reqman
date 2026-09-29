@@ -1,0 +1,99 @@
+{
+  "$ref": "#/definitions/baseline",
+  "definitions": {
+    "baseline": {
+      "type": "object",
+      "properties": {
+        "format_version": {
+          "type": "number",
+          "const": 1
+        },
+        "uid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$"
+        },
+        "project": {
+          "$ref": "#/definitions/baseline/properties/uid"
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$"
+        },
+        "object_format": {
+          "type": "string",
+          "enum": [
+            "sha1",
+            "sha256"
+          ]
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "actor": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "config_digest": {
+          "$ref": "#/definitions/baseline/properties/actor"
+        },
+        "canonicalization": {
+          "$ref": "#/definitions/baseline/properties/actor"
+        },
+        "selection": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "uid": {
+                "$ref": "#/definitions/baseline/properties/uid"
+              },
+              "definition": {
+                "$ref": "#/definitions/baseline/properties/actor"
+              },
+              "governance": {
+                "$ref": "#/definitions/baseline/properties/actor"
+              },
+              "canonicalization": {
+                "$ref": "#/definitions/baseline/properties/actor"
+              }
+            },
+            "required": [
+              "uid",
+              "definition",
+              "governance",
+              "canonicalization"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "supersedes": {
+          "$ref": "#/definitions/baseline/properties/uid"
+        }
+      },
+      "required": [
+        "format_version",
+        "uid",
+        "name",
+        "project",
+        "target",
+        "object_format",
+        "created_at",
+        "actor",
+        "description",
+        "config_digest",
+        "canonicalization",
+        "selection"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

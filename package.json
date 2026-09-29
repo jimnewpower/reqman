@@ -1,0 +1,52 @@
+{
+  "name": "reqman",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Git and Markdown requirements management — preview",
+  "type": "module",
+  "license": "GPL-3.0-only",
+  "engines": {
+    "node": ">=22.17.0"
+  },
+  "bin": {
+    "reqman": "dist/cli.js"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts serve",
+    "cli": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && node scripts/build.mjs && vite build",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "start": "node dist/cli.js serve",
+    "demo": "tsx scripts/demo.ts",
+    "schemas": "tsx scripts/schemas.ts"
+  },
+  "dependencies": {
+    "commander": "13.1.0",
+    "csv-parse": "7.0.3",
+    "fast-xml-parser": "5.11.2",
+    "minimatch": "10.2.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-markdown": "10.1.0",
+    "remark-parse": "11.0.0",
+    "unified": "11.0.5",
+    "yaml": "2.9.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.30",
+    "@types/react": "19.0.12",
+    "@types/react-dom": "19.0.4",
+    "@vitest/coverage-v8": "4.1.11",
+    "esbuild": "0.25.12",
+    "prettier": "3.9.9",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vite": "6.4.3",
+    "vitest": "4.1.11",
+    "zod-to-json-schema": "3.25.1"
+  }
+}
