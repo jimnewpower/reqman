@@ -2,7 +2,7 @@
 
 A local requirements workspace built with **TypeScript, Node.js, and React**. Definitions live in Markdown, decisions live in checked-in YAML records, and history stays in Git.
 
-**Working preview, not a complete V1 release.** The full target remains [the SRS](docs/requirements/reqman-srs.md). See [implementation status](docs/status.md). The initial Java scaffold was removed after the stack decision.
+**Working preview, not a complete V1 release.** The full target remains [the SRS](docs/requirements/reqman-srs.md). See [implementation status](docs/status.md). Policies, exact impact decisions, migration/restore, history, evidence attachments, and filtered reports are implemented. Release acceptance evidence is tracked separately.
 
 ## Run the preview
 
@@ -62,6 +62,10 @@ Create the initial commit with your own Git tools before comparing against HEAD.
 - [Architecture](docs/architecture.md)
 - [CLI and authoring guide](docs/guide.md)
 - [Format and canonicalization](docs/format.md)
+- [Policy and revision-bound decisions](docs/policy.md)
+- [Installation and compatibility](docs/release.md)
+- [Performance evidence](docs/performance.md)
+- [Accessibility acceptance](docs/accessibility.md)
 - [Evidence, migration, and exports](docs/interchange.md)
 - [Recovery, security, and data exit](docs/operations.md)
 - [SRS traceability and release status](docs/status.md)
@@ -79,6 +83,6 @@ npm audit
 
 `src/core` is shared by the CLI and local HTTP service; React lives in `src/ui`. Tests use synthetic temporary Git repositories. No database or remote service is required. Exact dependency resolutions and integrity hashes are in `package-lock.json`.
 
-`npm run cli -- ...` runs the CLI from TypeScript. Build the UI before `npm run dev -- --repo /path/to/project`. This preview distribution requires the checkout and installed dependencies; it is not a standalone binary. No package is automatically published.
+`npm run cli -- ...` runs the CLI from TypeScript. Build the UI before `npm run dev -- --repo /path/to/project`. Use `npm run package` to build an independently installable Node archive with checksums, source provenance and dependency inventory. Node and Git remain runtime prerequisites. No package is automatically published.
 
-The existing GPLv3 license is retained. Public distribution and documentation/data-format license decisions remain release gates.
+The existing GPLv3 license covers the source, documentation and format schemas. See [release terms](docs/release.md) and [security reporting](SECURITY.md). No public package has been published.

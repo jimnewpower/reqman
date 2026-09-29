@@ -6,6 +6,10 @@ export type Json =
 export type ObjectValue = { [key: string]: Json };
 
 export class Problem extends Error {
+  location?: { line: number; column: number };
+  inputPath?: (string | number)[];
+  file?: string;
+  subject?: string;
   constructor(
     public exitCode: number,
     public code: string,
@@ -23,6 +27,7 @@ export interface Diagnostic {
   subject?: string;
   message: string;
   remediation: string;
+  waiver?: { uid: string; reason: string; issuer: string; expires_at?: string };
 }
 export function diagnostic(
   code: string,
@@ -93,8 +98,11 @@ export interface SnapshotInfo {
   canonicalization: string;
   repository: string;
   mode: "committed" | "working";
+  captureKind?: "full" | "incremental";
+  evaluatedAt?: string;
 }
 export interface Snapshot {
+  selection?: string[];
   info: SnapshotInfo;
   config: Config;
   files: Map<string, Buffer>;
@@ -103,6 +111,11 @@ export interface Snapshot {
   records: DurableRecord[];
   baselines: Baseline[];
   diagnostics: Diagnostic[];
+}
+export function selectedRequirements(s: Snapshot): Requirement[] {
+  if (!s.selection) return s.requirements;
+  const selected = new Set(s.selection);
+  return s.requirements.filter((r) => selected.has(r.uid));
 }
 export interface Field {
   type: string;
@@ -133,6 +146,31 @@ export interface Config {
     review_impact: "conservative";
     require_rationale: boolean;
     require_acceptance: boolean;
+    require_change_record: boolean;
+    validation: {
+      rules: {
+        code: string;
+        severity: "error" | "warning" | "off";
+        field?: string;
+        specification?: string;
+        lifecycle?: string;
+        disposition?: string;
+      }[];
+      waivers: {
+        uid: string;
+        rule: string;
+        subject: string;
+        reason: string;
+        issuer: string;
+        expires_at?: string;
+      }[];
+    };
+    baseline: {
+      approval: boolean;
+      implementation: boolean;
+      verification: boolean;
+      currency: boolean;
+    };
   };
   extensions: ObjectValue;
 }
@@ -163,6 +201,10 @@ export interface DurableRecord {
   test_key?: string;
   duration?: number;
   details?: ObjectValue;
+  changes?: { before: Subject | null; after: Subject | null }[];
+  relation_paths?: string[][];
+  work_references?: string[];
+  attachments?: { path: string; sha256: string; size: number }[];
   title?: string;
   snapshot?: SnapshotInfo;
   provenance: string;
@@ -214,8 +256,15 @@ export function resolve(snapshot: Snapshot, ref: string): Requirement {
     );
   return matches[0];
 }
-export function requireValid(snapshot: Snapshot): void {
-  if (snapshot.diagnostics.some((d) => d.severity === "error"))
+export function requireValid(snapshot: Snapshot, structuralOnly = false): void {
+  if (
+    snapshot.diagnostics.some(
+      (d) =>
+        d.severity === "error" &&
+        !d.waiver &&
+        (!structuralOnly || !d.code.startsWith("POLICY_")),
+    )
+  )
     throw new Problem(
       1,
       "SNAPSHOT_INVALID",

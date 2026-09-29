@@ -193,6 +193,82 @@
             ]
           }
         },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "before": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/record/properties/subjects/items"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "after": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/record/properties/subjects/items"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "before",
+              "after"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "relation_paths": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/record/properties/uid"
+            },
+            "minItems": 2
+          }
+        },
+        "work_references": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/record/properties/actor"
+          }
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "size": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "path",
+              "sha256",
+              "size"
+            ],
+            "additionalProperties": false
+          }
+        },
         "title": {
           "type": "string"
         },
@@ -232,6 +308,17 @@
                 "committed",
                 "working"
               ]
+            },
+            "captureKind": {
+              "type": "string",
+              "enum": [
+                "full",
+                "incremental"
+              ]
+            },
+            "evaluatedAt": {
+              "type": "string",
+              "format": "date-time"
             }
           },
           "required": [

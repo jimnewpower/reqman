@@ -15,6 +15,15 @@ import {
   type Baseline,
 } from "./model.js";
 
+export const advisoryRule = z.enum([
+  "POLICY_OWNER",
+  "POLICY_TAGS",
+  "POLICY_FIELD",
+  "POLICY_VERIFICATION",
+  "POLICY_IMPLEMENTATION",
+  "POLICY_APPROVAL",
+]);
+
 export const configSchema = z
   .object({
     format_version: z.literal(1),
@@ -76,6 +85,65 @@ export const configSchema = z
         review_impact: z.literal("conservative").default("conservative"),
         require_rationale: z.boolean().default(false),
         require_acceptance: z.boolean().default(false),
+        require_change_record: z.boolean().default(false),
+        validation: z
+          .object({
+            rules: z
+              .array(
+                z
+                  .object({
+                    code: advisoryRule,
+                    severity: z.enum(["error", "warning", "off"]),
+                    field: nonempty.optional(),
+                    specification: nonempty.optional(),
+                    lifecycle: z
+                      .enum(["draft", "active", "retired"])
+                      .optional(),
+                    disposition: z
+                      .enum([
+                        "in_scope",
+                        "deferred",
+                        "not_applicable",
+                        "transferred",
+                      ])
+                      .optional(),
+                  })
+                  .strict()
+                  .refine(
+                    (r) => r.code !== "POLICY_FIELD" || Boolean(r.field),
+                    "POLICY_FIELD requires a field",
+                  ),
+              )
+              .default([]),
+            waivers: z
+              .array(
+                z
+                  .object({
+                    uid: uuid,
+                    rule: advisoryRule,
+                    subject: uuid,
+                    reason: nonempty,
+                    issuer: nonempty,
+                    expires_at: z
+                      .string()
+                      .datetime({ offset: true })
+                      .optional(),
+                  })
+                  .strict(),
+              )
+              .default([]),
+          })
+          .strict()
+          .default({}),
+        baseline: z
+          .object({
+            approval: z.boolean().default(false),
+            implementation: z.boolean().default(false),
+            verification: z.boolean().default(false),
+            currency: z.boolean().default(false),
+          })
+          .strict()
+          .default({}),
       })
       .strict()
       .default({}),
@@ -178,6 +246,42 @@ export const subjectSchema = z
     canonicalization: nonempty,
   })
   .strict();
+export const nativeEvidenceSchema = z
+  .object({
+    schema_version: z.literal(1),
+    run_id: nonempty.optional(),
+    producer: nonempty.optional(),
+    artifact: z
+      .object({ repository: nonempty, revision: nonempty })
+      .strict()
+      .optional(),
+    created_at: z.string().datetime({ offset: true }).optional(),
+    provenance: z.record(jsonValue).optional(),
+    attempts: z
+      .array(
+        z
+          .object({
+            key: nonempty,
+            outcome: z.enum([
+              "passed",
+              "failed",
+              "blocked",
+              "inconclusive",
+              "skipped",
+            ]),
+            duration_ms: z.number().int().nonnegative().default(0),
+            created_at: z.string().datetime({ offset: true }).optional(),
+            subjects: z.array(subjectSchema).min(1).optional(),
+            dependencies: z.array(subjectSchema).optional(),
+            obligations: z.array(uuid).min(1).optional(),
+            parameters: z.record(jsonValue).optional(),
+            details: z.record(jsonValue).optional(),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
 const snapshotSchema = z
   .object({
     ref: z.string(),
@@ -189,6 +293,8 @@ const snapshotSchema = z
     canonicalization: z.string(),
     repository: z.string(),
     mode: z.enum(["committed", "working"]),
+    captureKind: z.enum(["full", "incremental"]).optional(),
+    evaluatedAt: z.string().datetime({ offset: true }).optional(),
   })
   .strict();
 export const recordSchema = z
@@ -238,6 +344,36 @@ export const recordSchema = z
     test_key: z.string().optional(),
     duration: z.number().int().nonnegative().optional(),
     details: z.record(jsonValue).optional(),
+    changes: z
+      .array(
+        z
+          .object({
+            before: subjectSchema.nullable(),
+            after: subjectSchema.nullable(),
+          })
+          .strict()
+          .refine(
+            (p) =>
+              Boolean(p.before || p.after) &&
+              (!p.before || !p.after || p.before.uid === p.after.uid),
+            "Change pair identities must match",
+          ),
+      )
+      .min(1)
+      .optional(),
+    relation_paths: z.array(z.array(uuid).min(2)).optional(),
+    work_references: z.array(nonempty).optional(),
+    attachments: z
+      .array(
+        z
+          .object({
+            path: relativePath,
+            sha256: z.string().regex(/^[a-f0-9]{64}$/),
+            size: z.number().int().nonnegative(),
+          })
+          .strict(),
+      )
+      .optional(),
     title: z.string().optional(),
     snapshot: snapshotSchema.optional(),
     provenance: nonempty.default("local actor claim; unauthenticated"),
@@ -274,9 +410,12 @@ export const recordSchema = z
     if (
       r.kind === "impact" &&
       (!["rework", "reverify", "no_impact"].includes(r.decision || "") ||
-        !r.details)
+        !r.changes?.length ||
+        !r.relation_paths?.length)
     )
       invalid("Impact requires decision and exact change details");
+    if (r.kind === "change" && !r.changes?.length)
+      invalid("Change rationale requires exact before/after subjects");
   });
 export const baselineSchema = z
   .object({

@@ -6,4 +6,4 @@ Keep domain behavior in src/core and share it between CLI/server. Preserve indep
 
 Tests use synthetic temporary repositories. Never commit session keys, adopter proprietary data or unlicensed fixtures. Add focused tests for semantic/data-preservation changes and audit dependency updates.
 
-This is a preview. Governance, contribution agreement policy, private security reporting and public release evidence remain open before external contributions establish a public project process.
+Contributions are under the existing GPL-3.0-only repository license. The repository owner reviews and merges changes. This is a preview; use SECURITY.md for reporting guidance and docs/status.md for release acceptance gates. No contribution agreement or public support SLA has been established.

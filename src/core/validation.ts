@@ -1,5 +1,8 @@
 import { stable } from "./data.js";
 import { diagnostic, type Diagnostic, type Snapshot } from "./model.js";
+import { policyFindings } from "./policy.js";
+import { limits } from "./operations.js";
+import { bytesDigest } from "./data.js";
 
 export function validate(s: Snapshot): Diagnostic[] {
   const findings: Diagnostic[] = [];
@@ -152,6 +155,24 @@ export function validate(s: Snapshot): Diagnostic[] {
     }
   }
   for (const r of s.records) {
+    for (const attachment of r.attachments ?? []) {
+      const bytes = s.files.get(attachment.path);
+      if (
+        !attachment.path.startsWith(`${s.config.records_root}/attachments/`) ||
+        !bytes ||
+        bytes.length !== attachment.size ||
+        bytesDigest(bytes) !== attachment.sha256
+      )
+        findings.push(
+          diagnostic(
+            "ATTACHMENT_INTEGRITY",
+            `Missing, unsafe, or changed attachment: ${attachment.path}.`,
+            r.path,
+            1,
+            r.uid,
+          ),
+        );
+    }
     for (const subject of r.subjects)
       if (!requirements.has(subject.uid))
         findings.push(
@@ -222,12 +243,12 @@ export function validate(s: Snapshot): Diagnostic[] {
       }
     }
   }
-  if (s.requirements.length > 100000 || edges > 1000000)
+  if (s.requirements.length > limits().requirements || edges > limits().edges)
     findings.push(
       diagnostic(
         "LIMIT_GRAPH",
-        "The graph exceeds 100,000 requirements or 1,000,000 edges.",
+        `The graph exceeds ${limits().requirements} requirements or ${limits().edges} edges. Use --max-requirements / --max-edges.`,
       ),
     );
-  return findings;
+  return [...findings, ...policyFindings(s)];
 }

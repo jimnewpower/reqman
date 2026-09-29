@@ -6,6 +6,7 @@ import {
   requirementSchema,
   recordSchema,
   baselineSchema,
+  nativeEvidenceSchema,
 } from "../src/core/schema";
 import { canonicalMarkdown } from "../src/core/markdown";
 import { digest } from "../src/core/data";
@@ -16,6 +17,7 @@ for (const [name, schema] of Object.entries({
   requirement: requirementSchema,
   record: recordSchema,
   baseline: baselineSchema,
+  "native-evidence": nativeEvidenceSchema,
 })) {
   await writeFile(
     `schemas/${name}.schema.json`,

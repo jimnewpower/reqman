@@ -4,8 +4,75 @@ import path from "node:path";
 import { exportReport, importEvidence, migrate } from "../src/core/interchange";
 import { projection } from "../src/core/decisions";
 import { fixture } from "./helpers";
+import { subject } from "../src/core/model";
 
 describe("evidence truth and portable exports", () => {
+  it("preserves native parameter identities, exact historical subjects, and run provenance", async () => {
+    const f = await fixture(),
+      requirement = await f.add();
+    await f.record("verification.create", requirement.uid, {
+      title: "Parameterized identity check",
+      method: "test",
+    });
+    const obligation = (await f.repo.snapshot()).records[0],
+      artifact = { repository: "product", revision: "A" };
+    const exact = subject(requirement);
+    await f.service.execute({
+      operation: "requirement.edit",
+      target: requirement.uid,
+      input: { markdown: requirement.markdown + "\n\nNew constraint." },
+      apply: true,
+    });
+    const run = {
+      schema_version: 1,
+      run_id: "native-1",
+      producer: "native",
+      artifact,
+      created_at: "2026-09-29T10:00:00Z",
+      provenance: { runner: "Synthetic fixture" },
+      attempts: [
+        {
+          key: "native::identity::case[unicode]",
+          outcome: "failed",
+          duration_ms: 15,
+          parameters: { encoding: "UTF-8" },
+          subjects: [exact],
+          obligations: [obligation.uid],
+          details: { error: "Expected mismatch" },
+        },
+      ],
+    };
+    const input = {
+      run_id: run.run_id,
+      producer: run.producer,
+      artifact,
+      actor: "Runner claim",
+      mapping: {
+        [run.attempts[0].key]: {
+          requirement: requirement.uid,
+          obligation: obligation.uid,
+        },
+      },
+    };
+    await importEvidence(
+      f.service,
+      { operation: "evidence.import", input, apply: true },
+      Buffer.from(JSON.stringify(run)),
+    );
+    const s = await f.repo.snapshot(),
+      evidence = s.records.find((r) => r.kind === "evidence")!;
+    expect(evidence.subjects[0]).toEqual(exact);
+    expect(evidence.created_at).toBe(run.created_at);
+    expect(evidence.details?.parameters).toEqual({ encoding: "UTF-8" });
+    expect(
+      projection(s, s.requirements[0], "project", artifact).verification,
+    ).toBe("not_assessed");
+    expect(
+      projection(s, s.requirements[0], "project", artifact).records.find(
+        (r) => r.uid === evidence.uid,
+      )?.currency,
+    ).toBe("needs_review");
+  });
   it("requires explicit mappings, preserves skips, imports idempotently, and never auto-passes", async () => {
     const f = await fixture();
     const r = await f.add();

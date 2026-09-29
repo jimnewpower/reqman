@@ -2,19 +2,21 @@
 import { Command, CommanderError } from "commander";
 import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { realpath } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { Repository } from "./core/repository.js";
 import { Service, failure, type Request, type Result } from "./core/service.js";
-import { readBounded, type WritePlan } from "./core/files.js";
-import { object, utf8, bytesDigest } from "./core/data.js";
-import {
-  exportReport,
-  importEvidence,
-  migrate,
-  writeExport,
-} from "./core/interchange.js";
+import { readBounded, Writer, type WritePlan } from "./core/files.js";
+import { object, utf8, bytesDigest, json } from "./core/data.js";
+import { writeExport } from "./core/interchange.js";
 import { Problem, TOOL_VERSION } from "./core/model.js";
 import { serve } from "./server.js";
+import { operations, defaultLimits, limits } from "./core/operations.js";
+import {
+  AnalysisWorker,
+  type WorkerTask,
+  type WorkerResult,
+} from "./core/worker-client.js";
 
 const program = new Command()
   .name("reqman")
@@ -34,6 +36,21 @@ const program = new Command()
     writeOut: (str) => process.stdout.write(str),
     writeErr: (str) => process.stderr.write(str),
   });
+for (const name of [
+  "file-mib",
+  "snapshot-mib",
+  "import-mib",
+  "requirements",
+  "edges",
+  "files",
+  "depth",
+  "history",
+  "impacts",
+])
+  program.option(
+    `--max-${name} <number>`,
+    "Explicit local resource limit override",
+  );
 function setup(cmd: Command): Command {
   return cmd
     .option(
@@ -82,15 +99,86 @@ function action(operation: string) {
     const target = cmd.registeredArguments.length
       ? String(args[0] ?? "")
       : undefined;
+    let worker: AnalysisWorker | undefined;
+    let progressTimer: ReturnType<typeof setInterval> | undefined;
+    const analyze = (task: WorkerTask) => {
+      const global = program.opts(),
+        context = operations.getStore()!;
+      worker ??= new AnalysisWorker(
+        resolvePath(global.repo),
+        global.config,
+        false,
+        limits(),
+        new URL("../dist/worker.js", import.meta.url),
+      );
+      progressTimer ??= setInterval(() => {
+        if (!global.quiet)
+          process.stderr.write(
+            `reqman: ${context.progress.stage}${context.progress.atomic ? " (atomic replacement)" : ""}\n`,
+          );
+      }, 1000);
+      return worker.run(task, context.signal, (progress) => {
+        context.progress = progress;
+      });
+    };
+    const apply = async (
+      packet: WorkerResult,
+      request: Request,
+    ): Promise<Result> => {
+      const result = JSON.parse(packet.serialized) as Result;
+      if (
+        request.apply &&
+        !request.dryRun &&
+        packet.plan &&
+        !packet.httpStatus &&
+        result.complete
+      ) {
+        const prepared = await analyze({
+          kind: "prepare",
+          request,
+          plan: packet.plan,
+        });
+        if (!prepared.prepared)
+          return JSON.parse(prepared.serialized) as Result;
+        await new Writer(
+          prepared.prepared.plan.repository,
+          prepared.prepared.recordsRoot,
+        ).apply(prepared.prepared.plan);
+        (result.data as { applied: boolean }).applied = true;
+      }
+      return result;
+    };
     try {
+      const optsGlobal = program.opts();
+      const configured = { ...defaultLimits };
+      for (const [option, key, scale] of [
+        ["maxFileMib", "fileBytes", 1048576],
+        ["maxSnapshotMib", "snapshotBytes", 1048576],
+        ["maxImportMib", "importBytes", 1048576],
+        ["maxRequirements", "requirements", 1],
+        ["maxEdges", "edges", 1],
+        ["maxFiles", "files", 1],
+        ["maxDepth", "depth", 1],
+        ["maxHistory", "history", 1],
+        ["maxImpacts", "impacts", 1],
+      ] as const) {
+        if (optsGlobal[option] === undefined) continue;
+        const value = Number(optsGlobal[option]) * scale;
+        if (!Number.isSafeInteger(value) || value < 1)
+          throw new Problem(
+            2,
+            "LIMIT_OVERRIDE",
+            `${option} must be a positive exact integer.`,
+          );
+        configured[key] = value;
+      }
+      operations.getStore()!.limits = configured;
       if (!["text", "json"].includes(program.opts().format))
         throw new Problem(2, "OUTPUT_FORMAT", "--format must be text or json.");
       const inputBytes = opts.input
         ? await readBounded(resolvePath(opts.input))
         : undefined;
-      const input = inputBytes
-        ? object(JSON.parse(utf8(inputBytes)))
-        : undefined;
+      const input = inputBytes ? object(json(utf8(inputBytes))) : undefined;
       const request: Request = {
         operation,
         target,
@@ -108,6 +196,9 @@ function action(operation: string) {
         disposition: opts.disposition,
         status: opts.status,
         currency: opts.currency,
+        offset: opts.offset ? Number(opts.offset) : undefined,
+        limit: opts.limit ? Number(opts.limit) : undefined,
+        report: opts.report,
         ...(opts.artifactRepository && opts.artifactRevision
           ? {
               artifact: {
@@ -142,12 +233,25 @@ function action(operation: string) {
             "Provide --input plan.json --apply.",
           );
         const plan = (input.plan ?? input) as unknown as WritePlan;
-        await service.applySavedPlan(plan);
+        const prepared = await analyze({ kind: "prepare", request, plan });
+        if (!prepared.prepared) {
+          print(JSON.parse(prepared.serialized) as Result);
+          return;
+        }
+        await new Writer(
+          prepared.prepared.plan.repository,
+          prepared.prepared.recordsRoot,
+        ).apply(prepared.prepared.plan);
         print(service.result(request, null, { applied: true, plan: plan.uid }));
         return;
       }
       if (operation === "recover") request.input = { action: opts.action };
-      if (operation === "evidence.import" || operation === "migrate") {
+      if (
+        operation === "evidence.import" ||
+        operation === "migrate" ||
+        operation === "restore" ||
+        operation === "evidence.attach"
+      ) {
         if (!opts.source)
           throw new Problem(
             2,
@@ -156,7 +260,7 @@ function action(operation: string) {
           );
         const bytes = await readBounded(
           resolvePath(opts.source),
-          100 * 1024 * 1024,
+          limits().importBytes,
         );
         request.sourceGuards = [
           { path: resolvePath(opts.source), digest: bytesDigest(bytes) },
@@ -169,9 +273,21 @@ function action(operation: string) {
               ]
             : []),
         ];
-        const result = await (operation === "migrate"
-          ? migrate(service, request, bytes)
-          : importEvidence(service, request, bytes));
+        request.input = {
+          ...input,
+          ...(operation === "evidence.attach"
+            ? { name: input?.name ?? opts.name }
+            : {}),
+          content:
+            operation === "evidence.attach"
+              ? bytes.toString("base64")
+              : utf8(bytes),
+        };
+        const packet = await analyze({
+          kind: "command",
+          request: { ...request, apply: false },
+        });
+        const result = await apply(packet, request);
         const plan = (result.data as { plan?: WritePlan }).plan;
         if (opts.planOutput && plan)
           await writeExport(
@@ -188,12 +304,28 @@ function action(operation: string) {
             "OUTPUT_REQUIRED",
             "Provide --output destination.",
           );
-        const selected = await service.repository.snapshot(request.ref);
+        const packet = await analyze({
+          kind: "export",
+          request,
+          format: opts.type,
+        });
+        if (!packet.authority) {
+          print(JSON.parse(packet.serialized) as Result);
+          return;
+        }
+        let destination = resolvePath(opts.output);
+        try {
+          destination = await realpath(destination);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        const pathKey = (p: string) =>
+          process.platform === "win32" ? p.toLowerCase() : p;
         if (
-          [...selected.files.keys()].some(
+          packet.authority.paths.some(
             (file) =>
-              resolvePath(service.repository.root, file) ===
-              resolvePath(opts.output),
+              pathKey(resolvePath(packet.authority!.root, file)) ===
+              pathKey(destination),
           )
         )
           throw new Problem(
@@ -201,7 +333,7 @@ function action(operation: string) {
             "EXPORT_AUTHORITY",
             "Export destination is an authoritative input. Choose a separate output path.",
           );
-        const report = await exportReport(service, request, opts.type);
+        const report = JSON.parse(packet.serialized) as { content: string };
         if (!opts.dryRun)
           await writeExport(
             resolvePath(opts.output),
@@ -217,7 +349,16 @@ function action(operation: string) {
         );
         return;
       }
-      const result = await service.execute(request);
+      const result =
+        operation === "recover"
+          ? await service.execute(request)
+          : await apply(
+              await analyze({
+                kind: "command",
+                request: { ...request, apply: false },
+              }),
+              request,
+            );
       if (opts.planOutput && (result.data as { plan?: unknown })?.plan)
         await writeExport(
           resolvePath(opts.planOutput),
@@ -226,13 +367,24 @@ function action(operation: string) {
       print(result);
     } catch (error) {
       print(failure(operation, error));
+    } finally {
+      if (progressTimer) clearInterval(progressTimer);
+      await worker?.close();
     }
   };
 }
 setup(program.command("init").description("Preview repository setup"))
   .option("--plan-output <file>", "Save replayable preview plan")
   .action(action("init"));
-for (const name of ["validate", "list", "search", "trace", "doctor"])
+for (const name of [
+  "validate",
+  "list",
+  "search",
+  "trace",
+  "matrix",
+  "gaps",
+  "doctor",
+])
   setup(program.command(name))
     .option("--query <text>")
     .option("--specification <code>")
@@ -240,6 +392,8 @@ for (const name of ["validate", "list", "search", "trace", "doctor"])
     .option("--disposition <state>")
     .option("--status <state>")
     .option("--currency <state>")
+    .option("--offset <number>")
+    .option("--limit <number>")
     .action(action(name));
 for (const name of ["show", "history"])
   setup(program.command(`${name} <target>`)).action(action(name));
@@ -268,17 +422,31 @@ setup(document.command("add"))
   .option("--plan-output <file>")
   .action(action("document.add"));
 setup(document.command("show <target>")).action(action("document.show"));
-for (const name of ["review", "assess", "change", "verification", "evidence"]) {
+for (const name of [
+  "review",
+  "assess",
+  "change",
+  "verification",
+  "evidence",
+  "impact-record",
+]) {
+  const operation = name === "impact-record" ? "impact" : name;
   const family = program.command(name);
-  setup(family.command("list")).action(action(`${name}.list`));
+  setup(family.command("list")).action(action(`${operation}.list`));
   setup(family.command("create [target]"))
     .option("--plan-output <file>")
-    .action(action(`${name}.create`));
+    .action(action(`${operation}.create`));
   if (name === "evidence")
     setup(family.command("import"))
       .option("--source <file>")
       .option("--plan-output <file>")
       .action(action("evidence.import"));
+  if (name === "evidence")
+    setup(family.command("attach <target>"))
+      .requiredOption("--source <file>")
+      .requiredOption("--name <filename>")
+      .option("--plan-output <file>")
+      .action(action("evidence.attach"));
 }
 const baselines = program.command("baseline");
 setup(baselines.command("list")).action(action("baseline.list"));
@@ -294,7 +462,27 @@ setup(program.command("migrate"))
   .option("--source <file>")
   .option("--plan-output <file>")
   .action(action("migrate"));
+setup(program.command("restore"))
+  .requiredOption("--source <file>")
+  .option("--plan-output <file>")
+  .action(action("restore"));
+setup(program.command("upgrade"))
+  .option("--plan-output <file>")
+  .action(action("upgrade"));
 setup(program.command("export"))
+  .option(
+    "--report <report>",
+    "inventory, comparison, matrix, gaps",
+    "inventory",
+  )
+  .option("--base <ref>")
+  .option("--head <ref>")
+  .option("--query <text>")
+  .option("--specification <code>")
+  .option("--lifecycle <state>")
+  .option("--disposition <state>")
+  .option("--status <state>")
+  .option("--currency <state>")
   .option("--type <type>", "html, csv, json, markdown, portable", "html")
   .option("--output <file>")
   .option("--overwrite")
@@ -308,7 +496,16 @@ setup(program.command("recover"))
   .requiredOption("--action <action>", "complete or rollback")
   .action(action("recover"));
 try {
-  await program.parseAsync();
+  const controller = new AbortController();
+  process.on("SIGINT", () => controller.abort());
+  await operations.run(
+    {
+      signal: controller.signal,
+      lastYield: Date.now(),
+      progress: { stage: "Starting", atomic: false },
+    },
+    () => program.parseAsync(),
+  );
 } catch (error) {
   if (error instanceof CommanderError && error.exitCode === 0)
     process.exitCode = 0;

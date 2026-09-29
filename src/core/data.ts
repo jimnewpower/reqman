@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { parseDocument, visit, isAlias, isScalar, isCollection } from "yaml";
 import { z } from "zod";
 import { FILE_LIMIT, Problem, type Json, type ObjectValue } from "./model.js";
+import { limits } from "./operations.js";
 
 export function stable(value: unknown): string {
   if (value === undefined)
@@ -42,8 +43,27 @@ export function utf8(bytes: Uint8Array): string {
   }
 }
 export function yaml(text: string): unknown {
-  if (Buffer.byteLength(text) > FILE_LIMIT)
-    throw new Problem(3, "LIMIT_FILE", "YAML exceeds the 10 MiB file limit.");
+  if (Buffer.byteLength(text) > limits().fileBytes)
+    throw new Problem(
+      3,
+      "LIMIT_FILE",
+      `YAML exceeds ${limits().fileBytes} bytes. Use --max-file-mib for an explicit override.`,
+    );
+  if (/^\s*[\[{]/.test(text)) {
+    let parsed: unknown;
+    let valid = false;
+    try {
+      parsed = JSON.parse(text);
+      valid = true;
+    } catch {
+      /* YAML flow mappings may use unquoted keys. */
+    }
+    if (valid) {
+      checkJsonKeys(text);
+      checkJson(parsed);
+      return parsed;
+    }
+  }
   const doc = parseDocument(text, {
     version: "1.2",
     schema: "core",
@@ -51,14 +71,22 @@ export function yaml(text: string): unknown {
     prettyErrors: false,
   });
   if (doc.errors.length || doc.warnings.length)
-    throw new Problem(
-      2,
-      "YAML_INVALID",
-      [...doc.errors, ...doc.warnings].map((e) => e.message).join("; "),
+    throw locateYaml(
+      text,
+      new Problem(
+        2,
+        "YAML_INVALID",
+        [...doc.errors, ...doc.warnings].map((e) => e.message).join("; "),
+      ),
+      (doc.errors[0] ?? doc.warnings[0]).pos[0],
     );
   visit(doc, (_, node, path) => {
-    if (path.length > 128)
-      throw new Problem(3, "LIMIT_DEPTH", "YAML nesting exceeds 128.");
+    if (path.length > limits().depth)
+      throw new Problem(
+        3,
+        "LIMIT_DEPTH",
+        `YAML nesting exceeds ${limits().depth}. Use --max-depth for an explicit override.`,
+      );
     if (
       isAlias(node) ||
       ((isScalar(node) || isCollection(node)) && (node.anchor || node.tag))
@@ -73,9 +101,57 @@ export function yaml(text: string): unknown {
   checkJson(result);
   return result;
 }
+function checkJsonKeys(text: string): void {
+  const objects: (Set<string> | null)[] = [];
+  const tokens = /"(?:[^"\\]|\\.)*"|[{}\[\]]/g;
+  for (const token of text.matchAll(tokens)) {
+    const value = token[0];
+    if (value === "{" || value === "[") {
+      objects.push(value === "{" ? new Set() : null);
+      if (objects.length > limits().depth)
+        throw new Problem(
+          3,
+          "LIMIT_DEPTH",
+          `Data nesting exceeds ${limits().depth}. Use --max-depth.`,
+        );
+    } else if (value === "}" || value === "]") objects.pop();
+    else if (/^\s*:/.test(text.slice(token.index! + value.length))) {
+      const keys = objects.at(-1);
+      const key = JSON.parse(value);
+      if (keys?.has(key))
+        throw locateYaml(
+          text,
+          new Problem(2, "YAML_INVALID", `Duplicate key ${key}.`),
+          token.index,
+        );
+      keys?.add(key);
+    }
+  }
+}
+export function json(text: string, limit = limits().importBytes): unknown {
+  if (Buffer.byteLength(text) > limit)
+    throw new Problem(
+      3,
+      "LIMIT_IMPORT",
+      `JSON exceeds ${limit} bytes. Use --max-import-mib.`,
+    );
+  checkJsonKeys(text);
+  let result: unknown;
+  try {
+    result = JSON.parse(text);
+  } catch {
+    throw new Problem(2, "JSON_INVALID", "Malformed JSON input.");
+  }
+  checkJson(result);
+  return result;
+}
 function checkJson(value: unknown, depth = 0): void {
-  if (depth > 128)
-    throw new Problem(3, "LIMIT_DEPTH", "Data nesting exceeds 128.");
+  if (depth > limits().depth)
+    throw new Problem(
+      3,
+      "LIMIT_DEPTH",
+      `Data nesting exceeds ${limits().depth}. Use --max-depth for an explicit override.`,
+    );
   if (typeof value === "number" && !Number.isSafeInteger(value))
     throw new Problem(
       2,
@@ -95,15 +171,41 @@ export function readSchema<T extends z.ZodTypeAny>(
   value: unknown,
 ): z.output<T> {
   const result = schema.safeParse(value);
-  if (!result.success)
-    throw new Problem(
+  if (!result.success) {
+    const error = new Problem(
       2,
       "SCHEMA_INVALID",
       result.error.issues
         .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
         .join("; "),
     );
+    const issue = result.error.issues[0];
+    error.inputPath = [
+      ...issue.path,
+      ...(issue.code === "unrecognized_keys" ? [issue.keys[0]] : []),
+    ];
+    throw error;
+  }
   return result.data;
+}
+export function locateYaml(
+  text: string,
+  error: Problem,
+  knownOffset?: number,
+): Problem {
+  let offset = knownOffset ?? 0;
+  if (knownOffset === undefined && error.inputPath?.length) {
+    const doc = parseDocument(text, { prettyErrors: false });
+    const node = doc.getIn(error.inputPath, true) as
+      { range?: number[] } | undefined;
+    offset = node?.range?.[0] ?? 0;
+  }
+  const before = text.slice(0, offset);
+  error.location = {
+    line: before.split("\n").length,
+    column: offset - before.lastIndexOf("\n"),
+  };
+  return error;
 }
 export const uuid = z
   .string()

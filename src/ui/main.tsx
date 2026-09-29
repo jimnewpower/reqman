@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useRef,
   useState,
+  useId,
 } from "react";
 import { createRoot } from "react-dom/client";
 import Markdown from "react-markdown";
@@ -98,19 +99,29 @@ function Dialog({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const error = useContext(ErrorContext);
+  const titleId = useId();
   useEffect(() => {
-    ref.current?.showModal();
+    const modal = ref.current,
+      opener = document.activeElement as HTMLElement | null;
+    modal?.showModal();
+    return () => {
+      modal?.close();
+      queueMicrotask(() => {
+        if (opener?.isConnected) opener.focus();
+      });
+    };
   }, []);
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();
         close();
       }}
     >
       <div className="dialog-head">
-        <h2>{title}</h2>
+        <h2 id={titleId}>{title}</h2>
         <button
           className="icon-button"
           onClick={close}
@@ -145,7 +156,30 @@ function App() {
   );
   const [query, setQuery] = useState("");
   const [disposition, setDisposition] = useState("");
+  const [filters, setFilters] = useState({
+    specification: "",
+    lifecycle: "",
+    status: "",
+    currency: "",
+  });
+  const [report, setReport] = useState<
+    "inventory" | "comparison" | "matrix" | "gaps"
+  >("inventory");
+  const [historyView, setHistoryView] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [impactView, setImpactView] = useState<Record<string, unknown> | null>(
+    null,
+  );
+  const [impactTrigger, setImpactTrigger] = useState("");
+  const [progress, setProgress] = useState("Working…");
+  const [attachmentRecord, setAttachmentRecord] =
+    useState<DurableRecord | null>(null);
+  const activeOperation = useRef<string>("");
+  const activeController = useRef<AbortController | null>(null);
   const [error, setError] = useState("");
+  const [findings, setFindings] = useState<Result["diagnostics"]>([]);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [editor, setEditor] = useState<{
@@ -160,7 +194,7 @@ function App() {
   } | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [recordForm, setRecordForm] = useState<
-    "review" | "assess" | "verification" | null
+    "review" | "assess" | "verification" | "change" | "impact" | null
   >(null);
   const [reviewToken, setReviewToken] = useState("");
   const [documentView, setDocumentView] = useState<{
@@ -192,17 +226,22 @@ function App() {
     localStorage.setItem("reqman-theme", theme);
   }, [theme]);
   const api = useCallback(
-    async (path: string, body: unknown) => {
+    async (path: string, body: unknown, background = false) => {
       const response = await fetch(path, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
+          "X-Reqman-Operation": background ? "" : activeOperation.current,
         },
+        signal: background ? undefined : activeController.current?.signal,
         body: JSON.stringify(body),
       });
       const result = await response.json();
-      if (!response.ok || result.exit_code)
+      if (
+        !response.ok ||
+        (result.exit_code && (!result.complete || result.data === null))
+      )
         throw new Error(
           result.diagnostics
             ?.map(
@@ -219,21 +258,26 @@ function App() {
   const load = useCallback(async () => {
     if (!token) return;
     try {
-      const response = await api("/api/command", {
-        operation: "register",
-        ref,
-        scope,
-        ...(artifactRepository && artifactRevision
-          ? {
-              artifact: {
-                repository: artifactRepository,
-                revision: artifactRevision,
-              },
-            }
-          : {}),
-      });
+      const response = await api(
+        "/api/command",
+        {
+          operation: "register",
+          ref,
+          scope,
+          ...(artifactRepository && artifactRevision
+            ? {
+                artifact: {
+                  repository: artifactRepository,
+                  revision: artifactRevision,
+                },
+              }
+            : {}),
+        },
+        true,
+      );
       setData(response.data);
       setSnapshot(response.snapshot);
+      setFindings(response.diagnostics ?? []);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -244,6 +288,9 @@ function App() {
     return () => clearInterval(timer);
   }, [load]);
   const perform = async (operation: () => Promise<void>) => {
+    if (activeController.current) return;
+    activeController.current = new AbortController();
+    activeOperation.current = crypto.randomUUID();
     setBusy(true);
     setError("");
     setNotice("");
@@ -252,11 +299,37 @@ function App() {
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      activeController.current = null;
+      activeOperation.current = "";
       setBusy(false);
     }
   };
+  useEffect(() => {
+    if (!busy) return;
+    const timer = setInterval(() => {
+      void fetch("/api/progress", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: "{}",
+      })
+        .then((r) => r.json())
+        .then((result) => {
+          const job = result.jobs?.find(
+            (j: { id: string }) => j.id === activeOperation.current,
+          );
+          if (job)
+            setProgress(
+              `${job.stage}${job.total ? ` · ${job.completed}/${job.total}` : ""}${job.atomic ? " · atomic replacement" : ""}`,
+            );
+        });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [busy, token]);
   const preview = async (request: Request) => {
-    const result = await command({ ...request, ref, scope });
+    const result = await command({ ...request, ref, scope, artifact });
     const resultData = result.data as { plan?: Plan; idempotent?: boolean };
     if (resultData.plan) setPlan(resultData.plan);
     else if (resultData.idempotent)
@@ -283,12 +356,32 @@ function App() {
     data?.requirements.filter(
       (r) =>
         (!disposition || r.disposition === disposition) &&
-        `${r.qualifiedId} ${r.title} ${r.markdown}`
+        (!filters.specification || r.specification === filters.specification) &&
+        (!filters.lifecycle || r.lifecycle === filters.lifecycle) &&
+        (!filters.currency || r.state.currency === filters.currency) &&
+        (!filters.status ||
+          [
+            r.state.approval,
+            r.state.implementation,
+            r.state.verification,
+          ].includes(filters.status)) &&
+        `${r.qualifiedId} ${r.title} ${r.markdown} ${JSON.stringify(r.metadata)}`
           .toLowerCase()
           .includes(query.toLowerCase()),
     ) ?? [];
   const download = async (format: string) => {
-    const result = await api("/api/export", { format, ref, scope, artifact });
+    const result = await api("/api/export", {
+      format,
+      ref,
+      scope,
+      artifact,
+      report,
+      base,
+      head,
+      query: query || undefined,
+      disposition: disposition || undefined,
+      ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)),
+    });
     const url = URL.createObjectURL(
       new Blob([result.content], { type: "application/octet-stream" }),
     );
@@ -492,9 +585,46 @@ function App() {
                 {notice}
               </div>
             )}
+            {findings.length > 0 && (
+              <details className="alert">
+                <summary>{findings.length} validation findings</summary>
+                {findings.map((finding, i) => (
+                  <p key={i}>
+                    {finding.severity} {finding.code} · {finding.file}:
+                    {finding.line}:{finding.column} · {finding.message}
+                    {finding.waiver &&
+                      ` · waived by ${finding.waiver.issuer}: ${finding.waiver.reason}`}
+                  </p>
+                ))}
+              </details>
+            )}
             {busy && (
               <div className="busy" role="status">
-                Working…
+                {progress}{" "}
+                <button
+                  onClick={() => {
+                    void fetch("/api/cancel", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({
+                        operation: activeOperation.current,
+                      }),
+                    })
+                      .then((r) => r.json())
+                      .then((result) => {
+                        if (result.accepted) activeController.current?.abort();
+                        else
+                          setProgress(
+                            "Finishing atomic replacement before cancellation.",
+                          );
+                      });
+                  }}
+                >
+                  Cancel operation
+                </button>
               </div>
             )}
             {!data ? (
@@ -565,6 +695,104 @@ function App() {
                         </select>
                       </div>
                       <div className="table-scroll">
+                        <div className="filter-bar">
+                          <label>
+                            Specification
+                            <select
+                              value={filters.specification}
+                              onChange={(e) =>
+                                setFilters({
+                                  ...filters,
+                                  specification: e.target.value,
+                                })
+                              }
+                            >
+                              <option value="">All</option>
+                              {Array.from(
+                                new Map(
+                                  data.documents.map((d) => [
+                                    d.specification,
+                                    d.specification,
+                                  ]),
+                                ).values(),
+                              ).map((uid) => (
+                                <option key={uid} value={uid}>
+                                  {data.requirements
+                                    .find((r) => r.specification === uid)
+                                    ?.qualifiedId.split(":")[0] ?? uid}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Lifecycle
+                            <select
+                              value={filters.lifecycle}
+                              onChange={(e) =>
+                                setFilters({
+                                  ...filters,
+                                  lifecycle: e.target.value,
+                                })
+                              }
+                            >
+                              <option value="">All</option>
+                              {["draft", "active", "retired"].map((v) => (
+                                <option key={v}>{v}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Status
+                            <select
+                              value={filters.status}
+                              onChange={(e) =>
+                                setFilters({
+                                  ...filters,
+                                  status: e.target.value,
+                                })
+                              }
+                            >
+                              <option value="">All</option>
+                              {[
+                                "unreviewed",
+                                "approved",
+                                "changes_requested",
+                                "rejected",
+                                "implemented",
+                                "partial",
+                                "passed",
+                                "failed",
+                                "blocked",
+                                "conflicted",
+                                "not_assessed",
+                              ].map((v) => (
+                                <option key={v}>{v}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Currency
+                            <select
+                              value={filters.currency}
+                              onChange={(e) =>
+                                setFilters({
+                                  ...filters,
+                                  currency: e.target.value,
+                                })
+                              }
+                            >
+                              <option value="">All</option>
+                              {["current", "needs_review", "unknown"].map(
+                                (v) => (
+                                  <option key={v}>{v}</option>
+                                ),
+                              )}
+                            </select>
+                          </label>
+                          <span>
+                            {rows.length} of {data.requirements.length} selected
+                          </span>
+                        </div>
                         <table>
                           <thead>
                             <tr>
@@ -683,6 +911,31 @@ function App() {
                         <div className="detail-actions">
                           <button
                             disabled={!editable}
+                            onClick={() => {
+                              setReviewToken(active.fileToken);
+                              setRecordForm("change");
+                            }}
+                          >
+                            Change rationale
+                          </button>
+                          <button
+                            onClick={() =>
+                              void perform(async () => {
+                                const result = await command({
+                                  operation: "history",
+                                  ref,
+                                  target: active.uid,
+                                });
+                                setHistoryView(
+                                  result.data as Record<string, unknown>,
+                                );
+                              })
+                            }
+                          >
+                            History
+                          </button>
+                          <button
+                            disabled={!editable}
                             onClick={() => startEdit(active)}
                           >
                             Edit
@@ -708,6 +961,40 @@ function App() {
                         </div>
                         <MarkdownView text={active.markdown} />
                         <div className="detail-section">
+                          <h3>Governing context</h3>
+                          <p>
+                            {
+                              data.documents.find(
+                                (d) => d.uid === active.document,
+                              )?.title
+                            }{" "}
+                            ·{" "}
+                            {
+                              data.documents.find(
+                                (d) => d.uid === active.document,
+                              )?.context
+                            }
+                          </p>
+                          <button
+                            className="text-button"
+                            onClick={() =>
+                              void perform(async () => {
+                                const result = await command({
+                                  operation: "document.show",
+                                  ref,
+                                  target: active.path,
+                                });
+                                setDocumentView(
+                                  result.data as {
+                                    title: string;
+                                    source: string;
+                                  },
+                                );
+                              })
+                            }
+                          >
+                            Read surrounding document
+                          </button>
                           <h3>Traceability</h3>
                           {active.relations.length ? (
                             active.relations.map((r, i) => (
@@ -753,6 +1040,20 @@ function App() {
                                   <Badge value={r.currency} />
                                 </div>
                                 <p>{r.rationale}</p>
+                                {r.attachments?.map((a) => (
+                                  <p key={a.path}>
+                                    {a.path} · {a.size} bytes · SHA-256{" "}
+                                    {a.sha256}
+                                  </p>
+                                ))}
+                                {r.kind === "evidence" && (
+                                  <button
+                                    disabled={!editable}
+                                    onClick={() => setAttachmentRecord(r)}
+                                  >
+                                    Attach evidence file
+                                  </button>
+                                )}
                                 <small>
                                   {r.actor} ·{" "}
                                   {new Date(r.created_at).toLocaleString()} ·{" "}
@@ -887,6 +1188,71 @@ function App() {
                               : "Configuration unchanged",
                           )}
                         </p>
+                        <button
+                          onClick={() =>
+                            void perform(async () => {
+                              setImpactView(
+                                (
+                                  await command({
+                                    operation: "impact",
+                                    base,
+                                    head,
+                                  })
+                                ).data as Record<string, unknown>,
+                              );
+                            })
+                          }
+                        >
+                          Analyze downstream impact
+                        </button>
+                        {impactView && (
+                          <div className="detail-section">
+                            <h3>Upstream impact obligations</h3>
+                            {(
+                              impactView.affected as {
+                                uid: string;
+                                trigger: string;
+                                path: string[];
+                                resolution: string;
+                              }[]
+                            ).map((item, i) => (
+                              <div className="record" key={i}>
+                                <Badge value={item.resolution} />
+                                <p>
+                                  {item.path
+                                    .map(
+                                      (uid) =>
+                                        data.requirements.find(
+                                          (r) => r.uid === uid,
+                                        )?.qualifiedId ?? uid,
+                                    )
+                                    .join(" → ")}
+                                </p>
+                                <button
+                                  disabled={!editable}
+                                  onClick={() => {
+                                    select(item.uid);
+                                    setPage("Register");
+                                    setImpactTrigger(item.trigger);
+                                    setReviewToken(
+                                      data.requirements.find(
+                                        (r) => r.uid === item.uid,
+                                      )?.fileToken ?? "",
+                                    );
+                                    setRecordForm("impact");
+                                  }}
+                                >
+                                  Record impact decision
+                                </button>
+                              </div>
+                            ))}
+                            {impactView.complete === false && (
+                              <p role="alert">
+                                Impact traversal is incomplete.
+                              </p>
+                            )}
+                          </div>
+                        )}
                         {(
                           comparison.changes as {
                             uid: string;
@@ -950,7 +1316,7 @@ function App() {
                           </tr>
                         </thead>
                         <tbody>
-                          {data.requirements.flatMap((r) =>
+                          {rows.flatMap((r) =>
                             r.relations.map((edge, i) => (
                               <tr key={`${r.uid}-${i}`}>
                                 <td>
@@ -1066,6 +1432,33 @@ function App() {
                 <footer className="workspace-footer">
                   <span>{snapshot?.repository}</span>
                   <div>
+                    <label>
+                      Report
+                      <select
+                        value={report}
+                        onChange={(e) =>
+                          setReport(e.target.value as typeof report)
+                        }
+                      >
+                        {["inventory", "comparison", "matrix", "gaps"].map(
+                          (v) => (
+                            <option key={v}>{v}</option>
+                          ),
+                        )}
+                      </select>
+                    </label>
+                    <button
+                      className="text-button"
+                      onClick={() => void perform(() => download("csv"))}
+                    >
+                      CSV
+                    </button>
+                    <button
+                      className="text-button"
+                      onClick={() => void perform(() => download("markdown"))}
+                    >
+                      Markdown
+                    </button>
                     <button
                       className="text-button"
                       onClick={() => void perform(() => download("json"))}
@@ -1106,6 +1499,19 @@ function App() {
             <form
               onSubmit={(e) => {
                 e.preventDefault();
+                const form = new FormData(e.currentTarget);
+                const change =
+                  form.get("changeActor") || form.get("changeRationale")
+                    ? {
+                        actor: String(form.get("changeActor")),
+                        rationale: String(form.get("changeRationale")),
+                        work_references: String(
+                          form.get("changeReferences") ?? "",
+                        )
+                          .split("\n")
+                          .filter(Boolean),
+                      }
+                    : undefined;
                 void perform(() =>
                   preview({
                     operation: editor.uid
@@ -1113,6 +1519,7 @@ function App() {
                       : "requirement.add",
                     target: editor.uid,
                     input: {
+                      ...(change ? { change } : {}),
                       document: editor.document,
                       markdown: editor.markdown,
                       metadata: {
@@ -1333,6 +1740,21 @@ function App() {
                   </section>
                 )}
               <div className="form-actions">
+                <details>
+                  <summary>Change rationale for this edit</summary>
+                  <label>
+                    Actor
+                    <input name="changeActor" />
+                  </label>
+                  <label>
+                    Rationale
+                    <textarea name="changeRationale" />
+                  </label>
+                  <label>
+                    Work references (one per line)
+                    <textarea name="changeReferences" />
+                  </label>
+                </details>
                 <button type="button" onClick={() => setEditor(null)}>
                   Cancel
                 </button>
@@ -1370,6 +1792,7 @@ function App() {
                     setRecordForm(null);
                     setBaselineForm(false);
                     setImportForm(null);
+                    setAttachmentRecord(null);
                     setNotice(
                       "Saved to the working tree. Review and commit with your usual Git tools.",
                     );
@@ -1388,6 +1811,8 @@ function App() {
             row={active}
             close={() => setRecordForm(null)}
             busy={busy}
+            base={base}
+            trigger={impactTrigger}
             submit={(input) =>
               void perform(() =>
                 preview({
@@ -1398,6 +1823,109 @@ function App() {
               )
             }
           />
+        )}
+        {historyView && (
+          <Dialog
+            title="Requirement history"
+            close={() => setHistoryView(null)}
+          >
+            <p>
+              Git author names are reported claims.{" "}
+              {historyView.complete === false
+                ? "Available history is incomplete."
+                : "Available history scanned."}
+            </p>
+            {(
+              historyView.history as {
+                commit: string;
+                parent: string | null;
+                authorClaim?: string;
+                time?: string;
+                message?: string;
+                unavailable?: string;
+                change?: {
+                  classes: string[];
+                  before?: Requirement;
+                  after?: Requirement;
+                };
+              }[]
+            ).map((item, i) => (
+              <article className="record" key={i}>
+                <p>
+                  {item.message} · {item.authorClaim} · {item.time}
+                </p>
+                <code>{item.commit}</code>
+                <p>Parent: {item.parent ?? "initial commit"}</p>
+                <p>{item.unavailable ?? item.change?.classes.join(", ")}</p>
+                {item.change && (
+                  <details>
+                    <summary>Definition and source at this revision</summary>
+                    <pre>
+                      {item.change.after?.markdown ??
+                        item.change.before?.markdown}
+                    </pre>
+                  </details>
+                )}
+                <button
+                  onClick={() => {
+                    setRef(item.commit);
+                    setHistoryView(null);
+                  }}
+                >
+                  Open snapshot
+                </button>
+              </article>
+            ))}
+          </Dialog>
+        )}
+        {attachmentRecord && (
+          <Dialog
+            title="Attach an evidence file"
+            close={() => setAttachmentRecord(null)}
+          >
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const form = new FormData(e.currentTarget);
+                const file = form.get("attachment") as File;
+                const reader = new FileReader();
+                reader.onload = () =>
+                  void perform(() =>
+                    preview({
+                      operation: "evidence.attach",
+                      target: attachmentRecord.uid,
+                      input: {
+                        name: file.name,
+                        content: String(reader.result).split(",")[1],
+                        actor: String(form.get("actor")),
+                        rationale: String(form.get("rationale")),
+                      },
+                    }),
+                  );
+                reader.readAsDataURL(file);
+              }}
+            >
+              <p>
+                The new evidence record retains the original assessed revisions
+                and supersedes the original record.
+              </p>
+              <label>
+                Evidence attachment
+                <input type="file" name="attachment" required />
+              </label>
+              <label>
+                Actor
+                <input name="actor" required />
+              </label>
+              <label>
+                Rationale
+                <textarea name="rationale" required />
+              </label>
+              <button className="primary" disabled={busy}>
+                Preview attachment
+              </button>
+            </form>
+          </Dialog>
         )}
         {documentView && (
           <Dialog
@@ -1606,17 +2134,21 @@ function RecordDialog({
   close,
   submit,
   busy,
+  base,
+  trigger,
 }: {
-  kind: "review" | "assess" | "verification";
+  kind: "review" | "assess" | "verification" | "change" | "impact";
   row: Row;
   close: () => void;
   submit: (input: ObjectValue) => void;
   busy: boolean;
+  base: string;
+  trigger: string;
 }) {
   const [category, setCategory] = useState("implementation");
   return (
     <Dialog
-      title={`${kind === "review" ? "Review" : kind === "assess" ? "Assess" : "Define verification for"} ${row.qualifiedId}`}
+      title={`${kind === "review" ? "Review" : kind === "assess" ? "Assess" : kind === "change" ? "Change rationale for" : kind === "impact" ? "Impact decision for" : "Define verification for"} ${row.qualifiedId}`}
       close={close}
     >
       <form
@@ -1627,10 +2159,18 @@ function RecordDialog({
             actor: String(f.get("actor")),
             rationale: String(f.get("rationale")),
           };
+          if (kind === "change" || kind === "impact") {
+            input.base = String(f.get("base"));
+            if (kind === "impact") input.trigger = String(f.get("trigger"));
+            if (f.get("work_references"))
+              input.work_references = String(f.get("work_references"))
+                .split("\n")
+                .filter(Boolean);
+          }
           if (kind === "verification") {
             input.title = String(f.get("title"));
             input.method = String(f.get("method"));
-          } else {
+          } else if (kind !== "change") {
             input.decision = String(f.get("decision"));
             if (kind === "assess") input.category = category;
             if (f.get("role")) input.role = String(f.get("role"));
@@ -1666,6 +2206,26 @@ function RecordDialog({
           Actor name
           <input name="actor" required />
         </label>
+        {(kind === "change" || kind === "impact") && (
+          <>
+            <label>
+              Before revision
+              <input name="base" defaultValue={base} required />
+            </label>
+            {kind === "impact" && (
+              <label>
+                Changed upstream requirement UUID
+                <input name="trigger" defaultValue={trigger} required />
+              </label>
+            )}
+            {kind === "change" && (
+              <label>
+                Work references (one per line)
+                <textarea name="work_references" />
+              </label>
+            )}
+          </>
+        )}
         {kind === "verification" ? (
           <>
             <label>
@@ -1687,7 +2247,7 @@ function RecordDialog({
               </select>
             </label>
           </>
-        ) : (
+        ) : kind !== "change" ? (
           <>
             {kind === "assess" && (
               <label>
@@ -1704,11 +2264,19 @@ function RecordDialog({
             <label>
               Decision
               <select name="decision" key={category}>
-                {(kind === "review"
-                  ? ["approved", "changes_requested", "rejected", "revoked"]
-                  : category === "implementation"
-                    ? ["not_started", "partial", "implemented"]
-                    : ["planned", "passed", "failed", "blocked", "inconclusive"]
+                {(kind === "impact"
+                  ? ["no_impact", "rework", "reverify"]
+                  : kind === "review"
+                    ? ["approved", "changes_requested", "rejected", "revoked"]
+                    : category === "implementation"
+                      ? ["not_started", "partial", "implemented"]
+                      : [
+                          "planned",
+                          "passed",
+                          "failed",
+                          "blocked",
+                          "inconclusive",
+                        ]
                 ).map((v) => (
                   <option key={v}>{v}</option>
                 ))}
@@ -1745,7 +2313,7 @@ function RecordDialog({
               <input name="supersedes" />
             </label>
           </>
-        )}
+        ) : null}
         <label>
           Rationale
           <textarea name="rationale" required />

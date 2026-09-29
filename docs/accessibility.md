@@ -1,0 +1,7 @@
+# Browser verification and acceptance
+
+The local UI uses native buttons, selects, inputs and modal dialogs. Dialogs have programmatic titles; Esc dismisses them and native modal behavior contains focus. Status text accompanies color, keyboard focus is visible, and the layout has narrow-screen rules and light/dark/system appearance. Repository HTML and remote images do not execute or load.
+
+Automated core/HTTP tests verify authorization, read-only mode, preview/apply boundaries, source conflicts and cancellation. Browser verification uses synthetic demo data. The recorded checks include register filtering, requirement detail/context, history, comparison, preview editing, source-conflict draft preservation, light/dark appearance, and narrow-screen layout. See screenshots/register.png for the production view.
+
+This evidence does not establish WCAG 2.2 AA conformance. Before accepting RMS-UX-002, record a manual keyboard-only walkthrough of authentication, filtering, detail, editing, preview/apply, reconciliation, reports and import; verify focus return after every dialog and dynamic error. Run the same flows with NVDA/Firefox or VoiceOver/Safari, including heading/table navigation and live status. Verify 200% text zoom, 400% reflow, contrast for every theme/state, accessible names for custom fields, and asynchronous cancellation announcements. Keep tool/browser/screen-reader versions and any findings with the release evidence. A browser smoke test is not a substitute for this audit.

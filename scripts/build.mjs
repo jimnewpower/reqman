@@ -1,11 +1,11 @@
 import { build } from "esbuild";
 await build({
-  entryPoints: ["src/cli.ts"],
+  entryPoints: {cli: "src/cli.ts", worker: "src/worker.ts"},
   bundle: true,
   platform: "node",
   target: "node22",
   format: "esm",
   packages: "external",
-  outfile: "dist/cli.js",
+  outdir: "dist",
   sourcemap: true,
 });

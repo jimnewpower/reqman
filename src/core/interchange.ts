@@ -4,7 +4,16 @@ import path from "node:path";
 import { stringify } from "yaml";
 import { parse as csv } from "csv-parse/sync";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
-import { bytesDigest, digest, html, object, stable, utf8 } from "./data.js";
+import {
+  bytesDigest,
+  digest,
+  html,
+  object,
+  stable,
+  utf8,
+  json,
+  readSchema,
+} from "./data.js";
 import {
   FILE_LIMIT,
   Problem,
@@ -16,20 +25,52 @@ import {
   type Snapshot,
 } from "./model.js";
 import { dependencies, projection, summary } from "./decisions.js";
-import { parseRecord } from "./schema.js";
+import { parseRecord, nativeEvidenceSchema } from "./schema.js";
 import { parseDocument, recordMarkdown, requirementBlock } from "./markdown.js";
 import { readBounded, safePath } from "./files.js";
 import { Service, type Request, type Result } from "./service.js";
+import { labeledBlocks, orderedOverlays } from "./migration.js";
+import { limits } from "./operations.js";
 
 export async function exportReport(
   service: Service,
   request: Request,
   format: string,
+  captured?: (snapshot: Snapshot) => void,
 ): Promise<{ content: string; extension: string }> {
-  const s = await service.repository.snapshot(request.ref);
+  const s = await service.repository.snapshot(
+    request.report === "comparison"
+      ? (request.head ?? request.ref)
+      : request.ref,
+  );
   requireValid(s);
-  const result = await service.execute({ ...request, operation: "register" });
+  captured?.(s);
+  if (
+    request.report &&
+    request.report !== "inventory" &&
+    format !== "portable"
+  ) {
+    const result = await service.execute(
+      {
+        ...request,
+        operation: request.report === "comparison" ? "diff" : request.report,
+        head: request.head ?? request.ref,
+      },
+      s,
+    );
+    const body = result.data as {
+      changes?: Record<string, unknown>[];
+      rows?: Record<string, unknown>[];
+    };
+    const rows = body.changes ?? body.rows ?? [];
+    return reportTable(result, rows, format);
+  }
+  const result = await service.execute(
+    { ...request, operation: "register" },
+    s,
+  );
   const data = result.data as {
+    summary: ReturnType<typeof summary>;
     requirements: (Snapshot["requirements"][number] & {
       state: ReturnType<typeof projection>;
     })[];
@@ -38,6 +79,7 @@ export async function exportReport(
     return { content: JSON.stringify(result, null, 2), extension: "json" };
   if (format === "portable") {
     const files = [...s.files]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
       .filter(([p]) => !p.startsWith(`${s.config.records_root}/recovery/`))
       .map(([p, b]) => ({
         path: p,
@@ -49,6 +91,7 @@ export async function exportReport(
       content: JSON.stringify(
         {
           schema_version: 1,
+          config_path: service.repository.configPath,
           snapshot: s.info,
           git_history_included: false,
           external_artifacts_included: false,
@@ -108,7 +151,64 @@ export async function exportReport(
       "Choose html, csv, json, markdown, or portable.",
     );
   return {
-    content: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${html(s.config.project.name)} requirements</title><style>body{font:16px system-ui;max-width:1100px;margin:3rem auto;padding:0 1rem;color:#172c37}table{border-collapse:collapse;width:100%}td,th{padding:.7rem;text-align:left;border-bottom:1px solid #ccd6da}pre{white-space:pre-wrap}article{margin:3rem 0}small{color:#526873}</style><h1>${html(s.config.project.name)}</h1><p>Requirements report · ${html(s.info.ref)} · ${html(request.scope ?? "project")}</p><small>Snapshot ${html(s.info.objectId ?? s.info.captureId)}. Local actor claims are unauthenticated. External artifacts and Git history are not bundled.</small><pre>${html(JSON.stringify(summary(s, request.scope, request.artifact), null, 2))}</pre><table><thead><tr>${fields.map((f) => `<th>${html(f)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((v) => `<td>${html(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>${data.requirements.map((r) => `<article id="${r.uid}"><h2>${html(r.qualifiedId)} · ${html(r.title)}</h2><p>${html(r.path)}:${r.line}</p><pre>${html(r.markdown)}</pre></article>`).join("")}</html>`,
+    content: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${html(s.config.project.name)} requirements</title><style>body{font:16px system-ui;max-width:1100px;margin:3rem auto;padding:0 1rem;color:#172c37}table{border-collapse:collapse;width:100%}td,th{padding:.7rem;text-align:left;border-bottom:1px solid #ccd6da}pre{white-space:pre-wrap}article{margin:3rem 0}small{color:#526873}</style><h1>${html(s.config.project.name)}</h1><p>Requirements report · ${html(s.info.ref)} · ${html(request.scope ?? "project")}</p><small>Snapshot ${html(s.info.objectId ?? s.info.captureId)}. Local actor claims are unauthenticated. External artifacts and Git history are not bundled.</small><pre>${html(JSON.stringify(data.summary, null, 2))}</pre><table><thead><tr>${fields.map((f) => `<th>${html(f)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((v) => `<td>${html(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>${data.requirements.map((r) => `<article id="${r.uid}"><h2>${html(r.qualifiedId)} · ${html(r.title)}</h2><p>${html(r.path)}:${r.line}</p><pre>${html(r.markdown)}</pre></article>`).join("")}</html>`,
+    extension: "html",
+  };
+}
+function reportTable(
+  result: Result,
+  rows: Record<string, unknown>[],
+  format: string,
+) {
+  if (format === "json")
+    return { content: JSON.stringify(result, null, 2), extension: "json" };
+  const columns = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+  const values = rows.map((r) =>
+    columns.map((c) =>
+      typeof r[c] === "string"
+        ? (r[c] as string)
+        : JSON.stringify(r[c] ?? null),
+    ),
+  );
+  const provenance = JSON.stringify({
+    operation: result.operation,
+    snapshot: result.snapshot,
+    complete: result.complete,
+    diagnostics: result.diagnostics,
+    summary: (result.data as { summary?: unknown }).summary ?? null,
+    base: (result.data as { base?: unknown }).base,
+    head: (result.data as { head?: unknown }).head,
+  });
+  if (format === "csv") {
+    const cell = (s: string) =>
+      `"${(/^[\s]*[=+@\-\t\r]/.test(s) ? `'${s}` : s).replaceAll('"', '""')}"`;
+    return {
+      content:
+        [
+          columns.concat("provenance"),
+          ...values.map((row) => row.concat(provenance)),
+        ]
+          .map((row) => row.map(cell).join(","))
+          .join("\r\n") + "\r\n",
+      extension: "csv",
+    };
+  }
+  if (format === "markdown") {
+    const cell = (s: string) =>
+      s.replaceAll("|", "\\|").replaceAll("\n", " ").replaceAll("<", "&lt;");
+    return {
+      content: `# ${result.operation} report\n\nProvenance: ${cell(provenance)}\n\n| ${columns.join(" | ")} |\n| ${columns.map(() => "---").join(" | ")} |\n${values.map((row) => `| ${row.map(cell).join(" | ")} |`).join("\n")}\n`,
+      extension: "md",
+    };
+  }
+  if (format !== "html")
+    throw new Problem(
+      2,
+      "EXPORT_FORMAT",
+      "Choose json, csv, html, markdown, or portable.",
+    );
+  return {
+    content: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>${html(result.operation)} report</title><style>body{font:16px system-ui;margin:2rem}table{border-collapse:collapse}td,th{border:1px solid #aaa;padding:.5rem;vertical-align:top}pre{white-space:pre-wrap;overflow-wrap:anywhere}</style><h1>${html(result.operation)} report</h1><pre>${html(provenance)}</pre><table><thead><tr>${columns.map((c) => `<th>${html(c)}</th>`).join("")}</tr></thead><tbody>${values.map((row) => `<tr>${row.map((c) => `<td><pre>${html(c)}</pre></td>`).join("")}</tr>`).join("")}</tbody></table></html>`,
     extension: "html",
   };
 }
@@ -145,11 +245,15 @@ function junit(source: string, producer: string): TestResult[] {
   for (const match of source.matchAll(/<\/?([A-Za-z_][\w:.-]*)\b[^>]*>/g)) {
     if (match[0].startsWith("</")) depth--;
     else if (!match[0].endsWith("/>")) depth++;
-    if (depth > 128)
-      throw new Problem(3, "XML_DEPTH", "XML nesting exceeds 128.");
+    if (depth > limits().depth)
+      throw new Problem(
+        3,
+        "XML_DEPTH",
+        `XML nesting exceeds ${limits().depth}. Use --max-depth for an explicit override.`,
+      );
   }
   const parsed = new XMLParser({
-    maxNestedTags: 128,
+    maxNestedTags: limits().depth,
     ignoreAttributes: false,
     attributeNamePrefix: "@",
     processEntities: false,
@@ -268,19 +372,35 @@ export async function importEvidence(
   if (utf8(bytes).trimStart().startsWith("<"))
     results = junit(utf8(bytes), producer);
   else {
-    const native = JSON.parse(utf8(bytes));
-    if (native.schema_version !== 1 || !Array.isArray(native.attempts))
+    const native = readSchema(nativeEvidenceSchema, json(utf8(bytes)));
+    if (
+      (native.run_id && native.run_id !== input.run_id) ||
+      (native.producer && native.producer !== producer) ||
+      (native.artifact && stable(native.artifact) !== stable(input.artifact))
+    )
       throw new Problem(
-        2,
-        "RESULT_FORMAT",
-        "Native evidence requires schema_version 1 and attempts.",
+        4,
+        "RUN_PROVENANCE",
+        "Native run, producer, or artifact differs from the explicit import mapping.",
       );
-    results = native.attempts.map((a: Record<string, unknown>) => ({
-      key: a.key,
-      outcome: a.outcome,
-      duration: a.duration_ms ?? 0,
-      details: a,
-    })) as TestResult[];
+    results = native.attempts.map((raw) => {
+      const a = object(raw);
+      return {
+        key: a.key,
+        outcome: a.outcome,
+        duration: a.duration_ms ?? 0,
+        details: {
+          ...a,
+          native_run: {
+            run_id: native.run_id ?? input.run_id,
+            producer: native.producer ?? producer,
+            artifact: native.artifact ?? input.artifact,
+            created_at: native.created_at ?? input.created_at ?? null,
+            provenance: native.provenance ?? {},
+          },
+        },
+      };
+    }) as TestResult[];
   }
   const seen = new Set<string>();
   const records: DurableRecord[] = [];
@@ -309,15 +429,35 @@ export async function importEvidence(
         "OBLIGATION_MISSING",
         `Mapping needs a verification definition for ${r.qualifiedId}.`,
       );
+    const nativeSubjects = result.details.subjects as unknown as
+      DurableRecord["subjects"] | undefined;
+    const nativeObligations = result.details.obligations as
+      string[] | undefined;
+    if (
+      (nativeSubjects &&
+        (nativeSubjects.length !== 1 || nativeSubjects[0].uid !== r.uid)) ||
+      (nativeObligations &&
+        (nativeObligations.length !== 1 ||
+          nativeObligations[0] !== obligation.uid))
+    )
+      throw new Problem(
+        4,
+        "NATIVE_MAPPING",
+        "Exact native subjects/obligations must match the explicit test mapping. Use separate attempts for separate mappings.",
+      );
     const record = parseRecord({
       format_version: 1,
       uid: randomUUID(),
       kind: "evidence",
-      created_at: input.created_at ?? new Date().toISOString(),
+      created_at:
+        result.details.created_at ??
+        (result.details.native_run as ObjectValue | undefined)?.created_at ??
+        input.created_at ??
+        new Date().toISOString(),
       actor: input.actor,
       rationale: input.rationale ?? `Imported run ${input.run_id}`,
-      subjects: [subject(r)],
-      dependencies: dependencies(s, r),
+      subjects: nativeSubjects ?? [subject(r)],
+      dependencies: result.details.dependencies ?? dependencies(s, r),
       scope: request.scope ?? "project",
       artifact: input.artifact,
       result: result.outcome,
@@ -390,9 +530,24 @@ export async function migrate(
     input.mapping ?? { id: "id", title: "title", statement: "statement" },
   );
   let rows: Record<string, string>[];
+  let fieldProvenance: Record<string, Record<string, string>> = {};
   if (input.format === "json") {
-    const parsed = JSON.parse(text);
-    rows = Array.isArray(parsed) ? parsed : parsed.requirements;
+    const parsed = json(text);
+    rows = (
+      Array.isArray(parsed) ? parsed : object(parsed).requirements
+    ) as Record<string, string>[];
+  } else if (input.format === "overlays") {
+    const resolved = orderedOverlays(json(text), mapping);
+    if (resolved.conflicts.length)
+      return {
+        ...service.result(request, s, resolved),
+        complete: false,
+        exit_code: 4,
+      };
+    rows = resolved.rows;
+    fieldProvenance = resolved.provenance;
+  } else if (input.format === "labeled-blocks") {
+    rows = labeledBlocks(text, mapping);
   } else if (input.format === "markdown-table") {
     const lines = text.split(/\r?\n/).filter((l) => l.startsWith("|"));
     const cells = (l: string) =>
@@ -410,13 +565,19 @@ export async function migrate(
     rows = lines
       .slice(2)
       .map((l) => Object.fromEntries(cells(l).map((v, i) => [header[i], v])));
-  } else
+  } else if (input.format === "csv" || !input.format)
     rows = csv(text, {
       columns: true,
       skip_empty_lines: true,
       bom: true,
       max_record_size: FILE_LIMIT,
     });
+  else
+    throw new Problem(
+      2,
+      "MIGRATION_FORMAT",
+      "Choose csv, json, markdown-table, labeled-blocks, or overlays. Native portable archives use restore.",
+    );
   if (!Array.isArray(rows))
     throw new Problem(
       2,
@@ -464,6 +625,7 @@ export async function migrate(
             source_digest: sourceDigest,
             row: index + 1,
             original: row,
+            field_provenance: fieldProvenance[id] ?? {},
           },
         },
       },
@@ -494,6 +656,7 @@ export async function migrate(
     source_count: rows.length,
     target_count: prospective.requirements.length,
     identities,
+    field_provenance: fieldProvenance,
     authorities_after_explicit_cutover: [input.destination],
     unresolved: [
       "Imported statuses and approvals remain source claims, not current decisions.",
