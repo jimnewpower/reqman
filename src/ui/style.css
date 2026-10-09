@@ -156,35 +156,34 @@ label {
 }
 .brand {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
   text-decoration: none;
-  color: var(--ink);
-  font-size: 24px;
-  font-weight: 650;
-  letter-spacing: -0.7px;
-  padding: 0 8px;
+  background: #f4f5f8;
+  border: 1px solid #d8e0e6;
+  border-radius: 10px;
+  padding: 10px;
 }
 .brand-mark {
-  font-family: Georgia, serif;
-  font-weight: 700;
-  font-size: 38px;
-  background: var(--accent);
-  color: #fff;
+  display: block;
+  flex-shrink: 0;
   width: 40px;
-  height: 43px;
-  line-height: 37px;
-  text-align: center;
-  border-radius: 9px;
-  display: inline-block;
+  height: auto;
 }
-.brand-mark span {
-  color: #bce5b9;
+.brand-name {
+  flex: 1;
+  min-width: 0;
+}
+.brand-title {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 .brand small {
   display: block;
+  color: #526875;
   font-size: 7px;
-  letter-spacing: 1.2px;
+  letter-spacing: 0.8px;
   margin-top: 5px;
 }
 .project-card {
@@ -923,12 +922,28 @@ summary {
   overflow: auto;
 }
 .login {
-  max-width: 490px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 64px;
+  max-width: 980px;
   padding: 60px 25px;
   margin: 5vh auto;
 }
-.login .brand-mark {
+.login .brand {
+  width: min(100%, 280px);
   margin-bottom: 35px;
+}
+.login .brand-mark {
+  width: 48px;
+}
+.login-illustration {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  height: auto;
+  justify-self: end;
+  border-radius: 14px;
 }
 .login h1 {
   font-family: Georgia, serif;
@@ -936,7 +951,7 @@ summary {
   font-weight: 500;
   line-height: 1.2;
 }
-.login > p {
+.login-content > p {
   font-size: 14px;
   line-height: 1.8;
   color: var(--muted);
@@ -1086,7 +1101,7 @@ html[data-theme="dark"] .alert {
     border-bottom: 1px solid var(--line);
   }
   .brand {
-    font-size: 20px;
+    max-width: 210px;
   }
   .brand small,
   .project-card,
@@ -1126,6 +1141,23 @@ html[data-theme="dark"] .alert {
   }
   main {
     padding: 25px 16px;
+  }
+  .login {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    max-width: 490px;
+    padding: 32px 20px;
+    margin: 0 auto;
+  }
+  .login .brand {
+    max-width: 280px;
+  }
+  .login h1 {
+    font-size: 36px;
+  }
+  .login-illustration {
+    max-width: 280px;
+    justify-self: center;
   }
   .page-heading {
     align-items: flex-start;

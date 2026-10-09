@@ -59,7 +59,7 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
     await operations.run(context, async () => {
       res.setHeader(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
       );
       res.setHeader("X-Content-Type-Options", "nosniff");
       res.setHeader("Referrer-Policy", "no-referrer");
@@ -214,11 +214,15 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
         const file = path.resolve(ui, name);
         const content = await readFile(file);
         const type = name.endsWith(".js")
-          ? "text/javascript"
+          ? "text/javascript; charset=utf-8"
           : name.endsWith(".css")
-            ? "text/css"
-            : "text/html";
-        res.writeHead(200, { "Content-Type": `${type}; charset=utf-8` });
+            ? "text/css; charset=utf-8"
+            : name.endsWith(".png")
+              ? "image/png"
+              : name.endsWith(".jpg") || name.endsWith(".jpeg")
+                ? "image/jpeg"
+                : "text/html; charset=utf-8";
+        res.writeHead(200, { "Content-Type": type });
         res.end(content);
       } catch (error) {
         const result = failure("http", error);
