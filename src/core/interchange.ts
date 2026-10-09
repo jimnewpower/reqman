@@ -31,6 +31,7 @@ import { readBounded, safePath } from "./files.js";
 import { Service, type Request, type Result } from "./service.js";
 import { labeledBlocks, orderedOverlays } from "./migration.js";
 import { limits } from "./operations.js";
+import { migrateGrouped } from "./migration-grouped.js";
 
 export async function exportReport(
   service: Service,
@@ -508,8 +509,9 @@ export async function migrate(
   requireValid(s);
   const input = request.input ?? {};
   if (
-    typeof input.destination !== "string" ||
-    !input.destination.endsWith(".md")
+    !input.group_by &&
+    (typeof input.destination !== "string" ||
+      !input.destination.endsWith(".md"))
   )
     throw new Problem(
       2,
@@ -583,6 +585,14 @@ export async function migrate(
       2,
       "MIGRATION_FORMAT",
       "Input must contain a requirement array.",
+    );
+  if (input.group_by)
+    return migrateGrouped(service, request, s, rows, sourceDigest);
+  if (typeof input.destination !== "string")
+    throw new Problem(
+      2,
+      "MIGRATION_DESTINATION",
+      "Provide an explicit Markdown destination.",
     );
   const spec =
     s.config.specifications.find(
