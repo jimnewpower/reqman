@@ -59,6 +59,7 @@ import { validate } from "./validation.js";
 import { baselineEligibility } from "./policy.js";
 import { index } from "./index.js";
 import { checkpoint, limits } from "./operations.js";
+import { LOGIN_PROVENANCE, type Identity } from "./auth.js";
 
 export interface Request {
   sourceGuards?: { path: string; digest: string }[];
@@ -120,8 +121,28 @@ export function failure(operation: string, error: unknown): Result {
   };
 }
 export class Service {
-  constructor(public repository: Repository) {}
+  constructor(
+    public repository: Repository,
+    public readonly identity?: Identity,
+  ) {}
+  attribute(request: Request): Request {
+    if (!this.identity) return request;
+    const input: ObjectValue = {
+      ...request.input,
+      actor: this.identity.username,
+    };
+    if (input.role && !this.identity.roles.includes(String(input.role)))
+      throw new Problem(
+        4,
+        "LOGIN_ROLE",
+        "Choose a role assigned to your login.",
+      );
+    if (input.change)
+      input.change = { ...object(input.change), actor: this.identity.username };
+    return { ...request, input };
+  }
   async execute(request: Request, frozen?: Snapshot): Promise<Result> {
+    request = this.attribute(request);
     if (request.operation === "upgrade") {
       const bytes = await optionalBytes(
         await safePath(this.repository.root, this.repository.configPath),
@@ -599,6 +620,9 @@ export class Service {
       created_at: new Date().toISOString(),
       actor: input.actor,
       rationale: input.rationale,
+      provenance: this.identity
+        ? `${LOGIN_PROVENANCE}; attachment added; original provenance: ${prior.provenance}`
+        : `local actor claim; unauthenticated; attachment added; original provenance: ${prior.provenance}`,
       supersedes: [prior.uid],
       attachments: [...(prior.attachments ?? []), attachment],
     });
@@ -663,6 +687,7 @@ export class Service {
     recordsRoot = s?.config.records_root ?? ".requirements",
   ): Promise<unknown> {
     this.writable(s ?? undefined);
+    if (s && this.identity) this.auditChanges(s, request, plan, this.identity);
     if (request.sourceGuards) plan.sourceGuards = request.sourceGuards;
     for (const e of plan.entries) {
       const actual = await optionalBytes(
@@ -688,6 +713,73 @@ export class Service {
       configuration: this.repository.configPath,
       plan,
     };
+  }
+  private auditChanges(
+    s: Snapshot,
+    request: Request,
+    plan: WritePlan,
+    identity: Identity,
+  ): void {
+    const next = this.prospective(s, plan);
+    const detail = object(request.input?.change ?? {});
+    for (const change of compare(s, next).changes) {
+      const before = change.before ? subject(change.before) : null;
+      const after = change.after ? subject(change.after) : null;
+      if (
+        next.config.policy.require_change_record &&
+        change.classes.some((c) =>
+          [
+            "definition",
+            "governing_context",
+            "scope_governance",
+            "relationship",
+            "retirement",
+            "removal",
+          ].includes(c),
+        ) &&
+        !String(detail.rationale ?? "").trim()
+      )
+        throw new Problem(
+          1,
+          "CHANGE_RECORD_REQUIRED",
+          "Material changes require input.change.rationale.",
+        );
+      const requirement = change.after ?? change.before!;
+      const rec = parseRecord({
+        format_version: 1,
+        uid: randomUUID(),
+        kind: "change",
+        created_at: new Date().toISOString(),
+        actor: identity.username,
+        provenance: LOGIN_PROVENANCE,
+        rationale:
+          typeof detail.rationale === "string" && detail.rationale.trim()
+            ? detail.rationale
+            : `Saved ${request.operation}: ${change.label}.`,
+        scope: request.scope ?? "project",
+        subjects: [subject(requirement)],
+        dependencies: change.after ? dependencies(next, requirement) : [],
+        changes: [{ before, after }],
+        snapshot: next.info,
+        details: {
+          operation: request.operation,
+          classes: change.classes,
+          fields: change.fields,
+          before_path: change.before?.path ?? null,
+          after_path: change.after?.path ?? null,
+        },
+        ...(detail.work_references
+          ? { work_references: detail.work_references }
+          : {}),
+      });
+      plan.entries.push(
+        entry(
+          `${next.config.records_root}/changes/${rec.uid}.md`,
+          null,
+          recordMarkdown(rec),
+        ),
+      );
+    }
   }
   private validatePlan(s: Snapshot, plan: WritePlan): void {
     const prospective = this.prospective(s, plan);
@@ -839,6 +931,13 @@ export class Service {
           "WRITE_CONFLICT",
           "Authoritative file inventory changed after preview.",
         );
+      for (const [file, hash] of Object.entries(plan.guards))
+        if (bytesDigest(s.files.get(file)!) !== hash)
+          throw new Problem(
+            4,
+            "WRITE_CONFLICT",
+            `Source changed since preview: ${file}`,
+          );
       this.validatePlan(s, plan);
     }
     const recordsRoot =
@@ -1086,6 +1185,7 @@ export class Service {
         const metadata = {
           ...object(successor.metadata),
           uid: randomUUID(),
+          ...(this.identity ? { author: this.identity.username } : {}),
           relations: predecessors.map((r) => ({
             type: "supersedes",
             target: r.uid,
@@ -1141,12 +1241,19 @@ export class Service {
         metadata.lifecycle = "retired";
         metadata.retirement_reason = input.reason;
       }
+      if (this.identity && (op === "add" || op === "clone"))
+        metadata.author = this.identity.username;
+      else if (this.identity && source) {
+        if (source.metadata.author !== undefined)
+          metadata.author = source.metadata.author;
+        else delete metadata.author;
+      }
       const block = requirementBlock(metadata, markdown, newline);
       if (source && op !== "clone") replace(source, block);
       else append(block);
     }
     const plan = this.plan(s, request.operation, changes);
-    if (input.change) {
+    if (input.change && !this.identity) {
       const detail = object(input.change);
       const next = this.prospective(s, plan);
       const pairs = compare(s, next).changes.filter(
@@ -1298,6 +1405,13 @@ export class Service {
       obligations: [],
       provenance: "local actor claim; unauthenticated",
       ...payload,
+      ...(this.identity
+        ? {
+            actor: this.identity.username,
+            provenance: LOGIN_PROVENANCE,
+            created_at: new Date().toISOString(),
+          }
+        : {}),
       ...binding,
       subjects: requirements.map(subject),
       dependencies: [

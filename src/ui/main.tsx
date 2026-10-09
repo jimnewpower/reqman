@@ -20,6 +20,7 @@ import type {
   Relation,
 } from "../core/model";
 import type { Result, Request } from "../core/service";
+import type { Identity } from "../core/auth";
 import "./style.css";
 
 const logoIcon = new URL("./assets/reqman-icon.png", import.meta.url).href;
@@ -56,6 +57,48 @@ function Brand() {
 
 type Row = Requirement & { state: Projection; fileToken: string };
 const ErrorContext = createContext("");
+const IdentityContext = createContext<Identity | null>(null);
+
+function WorkspaceContext({
+  error,
+  identity,
+  children,
+}: {
+  error: string;
+  identity: Identity | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <ErrorContext.Provider value={error}>
+      <IdentityContext.Provider value={identity}>
+        {children}
+      </IdentityContext.Provider>
+    </ErrorContext.Provider>
+  );
+}
+
+function ActorField({
+  name = "actor",
+  label = "Actor",
+  required = false,
+}: {
+  name?: string;
+  label?: string;
+  required?: boolean;
+}) {
+  const identity = useContext(IdentityContext);
+  return (
+    <label>
+      {identity ? "Signed-in user" : label}
+      <input
+        name={name}
+        required={required}
+        readOnly={Boolean(identity)}
+        defaultValue={identity?.username ?? ""}
+      />
+    </label>
+  );
+}
 type Register = {
   project: { name: string; uid: string };
   requirements: Row[];
@@ -176,6 +219,9 @@ function App() {
     sessionStorage.getItem("reqman-key") ?? "",
   );
   const [keyInput, setKeyInput] = useState("");
+  const [username, setUsername] = useState("");
+  const [loginEnabled, setLoginEnabled] = useState<boolean | null>(null);
+  const [identity, setIdentity] = useState<Identity | null>(null);
   const [data, setData] = useState<Register | null>(null);
   const [snapshot, setSnapshot] = useState<SnapshotInfo | null>(null);
   const [ref, setRef] = useState(
@@ -257,6 +303,24 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("reqman-theme", theme);
   }, [theme]);
+  const clearSession = useCallback(() => {
+    sessionStorage.removeItem("reqman-key");
+    setToken("");
+    setIdentity(null);
+    setData(null);
+    setSnapshot(null);
+    setPlan(null);
+    setEditor(null);
+    setRecordForm(null);
+    setAttachmentRecord(null);
+    setBaselineForm(false);
+    setImportForm(null);
+    setHistoryView(null);
+    setDocumentView(null);
+    setComparison(null);
+    setImpactView(null);
+    setFindings([]);
+  }, []);
   const api = useCallback(
     async (path: string, body: unknown, background = false) => {
       const response = await fetch(path, {
@@ -270,6 +334,9 @@ function App() {
         body: JSON.stringify(body),
       });
       const result = await response.json();
+      if (response.status === 401 && path !== "/api/login") {
+        clearSession();
+      }
       if (
         !response.ok ||
         (result.exit_code && (!result.complete || result.data === null))
@@ -284,11 +351,29 @@ function App() {
         );
       return result;
     },
-    [token],
+    [token, clearSession],
   );
+  useEffect(() => {
+    let current = true;
+    void api("/api/session", {}, true)
+      .then((session) => {
+        if (!current) return;
+        setLoginEnabled(session.loginEnabled);
+        setIdentity(session.user);
+        if (session.loginEnabled && !session.user && token) {
+          clearSession();
+        }
+      })
+      .catch((e: Error) => {
+        if (current) setError(e.message);
+      });
+    return () => {
+      current = false;
+    };
+  }, [api, token, clearSession]);
   const command = (r: Request) => api("/api/command", r) as Promise<Result>;
   const load = useCallback(async () => {
-    if (!token) return;
+    if (!token || loginEnabled === null || (loginEnabled && !identity)) return;
     try {
       const response = await api(
         "/api/command",
@@ -313,7 +398,16 @@ function App() {
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [api, token, ref, scope, artifactRepository, artifactRevision]);
+  }, [
+    api,
+    token,
+    loginEnabled,
+    identity,
+    ref,
+    scope,
+    artifactRepository,
+    artifactRevision,
+  ]);
   useEffect(() => {
     void load();
     const timer = setInterval(() => void load(), 15000);
@@ -423,7 +517,12 @@ function App() {
     a.click();
     URL.revokeObjectURL(url);
   };
-  if (!token || (!data && error.includes("access key")))
+  if (
+    !token ||
+    loginEnabled === null ||
+    (loginEnabled && !identity) ||
+    (!data && error.includes("access key"))
+  )
     return (
       <main className="login">
         <div className="login-content">
@@ -437,33 +536,69 @@ function App() {
             Your repository.
           </h1>
           <p>
-            Enter the access key from <code>reqman serve</code> to open this
-            local session.
+            {loginEnabled ? (
+              "Sign in to record your name on approvals and requirement changes."
+            ) : (
+              <>
+                Enter the access key from <code>reqman serve</code> to open this
+                local session.
+              </>
+            )}
           </p>
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              sessionStorage.setItem("reqman-key", keyInput);
-              setToken(keyInput);
-              setError("");
+              void perform(async () => {
+                if (loginEnabled) {
+                  const session = await api("/api/login", {
+                    username,
+                    password: keyInput,
+                  });
+                  sessionStorage.setItem("reqman-key", session.token);
+                  setIdentity(session.user);
+                  setToken(session.token);
+                } else {
+                  sessionStorage.setItem("reqman-key", keyInput);
+                  setToken(keyInput);
+                }
+                setKeyInput("");
+              });
             }}
           >
-            <label htmlFor="access-key">Session access key</label>
+            {loginEnabled && (
+              <>
+                <label htmlFor="login-username">Username</label>
+                <input
+                  id="login-username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                  autoComplete="username"
+                  autoFocus
+                />
+              </>
+            )}
+            <label htmlFor="access-key">
+              {loginEnabled ? "Password" : "Session access key"}
+            </label>
             <input
               id="access-key"
               type="password"
               value={keyInput}
               onChange={(e) => setKeyInput(e.target.value)}
               required
-              autoFocus
-              autoComplete="off"
+              autoFocus={!loginEnabled}
+              autoComplete={loginEnabled ? "current-password" : "off"}
             />
-            <button className="primary">Open workspace →</button>
+            <button
+              className="primary"
+              disabled={busy || loginEnabled === null}
+            >
+              {loginEnabled ? "Sign in →" : "Open workspace →"}
+            </button>
           </form>
           {error && <p role="alert">{error}</p>}
-          <small>
-            Files stay on this machine. No account or hosted service.
-          </small>
+          <small>Files and login accounts stay on this machine.</small>
         </div>
         <img
           className="login-illustration"
@@ -475,7 +610,7 @@ function App() {
       </main>
     );
   return (
-    <ErrorContext.Provider value={error}>
+    <WorkspaceContext error={error} identity={identity}>
       <div className="app-shell">
         <aside className="sidebar">
           <a
@@ -518,6 +653,23 @@ function App() {
             ))}
           </nav>
           <div className="sidebar-bottom">
+            {identity && (
+              <div className="session-user">
+                <strong>{identity.display_name}</strong>
+                <small>Signed in as {identity.username}</small>
+              </div>
+            )}
+            <button
+              disabled={busy}
+              onClick={() =>
+                void perform(async () => {
+                  await api("/api/logout", {});
+                  clearSession();
+                })
+              }
+            >
+              Sign out
+            </button>
             <div className="local-status">
               <span className="dot" /> Local session{" "}
               <Badge value={editable ? "editable" : "read_only"} />
@@ -1066,8 +1218,7 @@ function App() {
                         <div className="detail-section">
                           <h3>Decisions & evidence</h3>
                           <p className="muted">
-                            Actor names are local claims, not authenticated
-                            identities.
+                            Each record shows its actor and identity provenance.
                           </p>
                           {active.state.records.length ? (
                             active.state.records.map((r) => (
@@ -1098,6 +1249,7 @@ function App() {
                                   {new Date(r.created_at).toLocaleString()} ·{" "}
                                   {r.scope}
                                 </small>
+                                <small>{r.provenance}</small>
                               </div>
                             ))
                           ) : (
@@ -1539,18 +1691,21 @@ function App() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const form = new FormData(e.currentTarget);
-                const change =
-                  form.get("changeActor") || form.get("changeRationale")
-                    ? {
-                        actor: String(form.get("changeActor")),
-                        rationale: String(form.get("changeRationale")),
-                        work_references: String(
-                          form.get("changeReferences") ?? "",
-                        )
-                          .split("\n")
-                          .filter(Boolean),
-                      }
-                    : undefined;
+                const change = (
+                  identity
+                    ? form.get("changeRationale")
+                    : form.get("changeActor") || form.get("changeRationale")
+                )
+                  ? {
+                      actor: String(form.get("changeActor")),
+                      rationale: String(form.get("changeRationale")),
+                      work_references: String(
+                        form.get("changeReferences") ?? "",
+                      )
+                        .split("\n")
+                        .filter(Boolean),
+                    }
+                  : undefined;
                 void perform(() =>
                   preview({
                     operation: editor.uid
@@ -1781,10 +1936,7 @@ function App() {
               <div className="form-actions">
                 <details>
                   <summary>Change rationale for this edit</summary>
-                  <label>
-                    Actor
-                    <input name="changeActor" />
-                  </label>
+                  <ActorField name="changeActor" />
                   <label>
                     Rationale
                     <textarea name="changeRationale" />
@@ -1952,10 +2104,7 @@ function App() {
                 Evidence attachment
                 <input type="file" name="attachment" required />
               </label>
-              <label>
-                Actor
-                <input name="actor" required />
-              </label>
+              <ActorField required />
               <label>
                 Rationale
                 <textarea name="rationale" required />
@@ -2000,10 +2149,7 @@ function App() {
                 Target commit or reference
                 <input name="target" defaultValue="HEAD" required />
               </label>
-              <label>
-                Creator claim
-                <input name="actor" required />
-              </label>
+              <ActorField label="Creator claim" required />
               <label>
                 Description
                 <textarea name="description" />
@@ -2037,7 +2183,7 @@ function App() {
           />
         )}
       </div>
-    </ErrorContext.Provider>
+    </WorkspaceContext>
   );
 }
 function decode(value: string | null): string {
@@ -2185,6 +2331,7 @@ function RecordDialog({
   trigger: string;
 }) {
   const [category, setCategory] = useState("implementation");
+  const identity = useContext(IdentityContext);
   return (
     <Dialog
       title={`${kind === "review" ? "Review" : kind === "assess" ? "Assess" : kind === "change" ? "Change rationale for" : kind === "impact" ? "Impact decision for" : "Define verification for"} ${row.qualifiedId}`}
@@ -2239,12 +2386,12 @@ function RecordDialog({
       >
         <p className="muted">
           Binds the exact definition, governing context, and upstream
-          dependencies. Actor identity is an unauthenticated local claim.
+          dependencies.{" "}
+          {identity
+            ? "Actor identity comes from your local login."
+            : "Actor identity is an unauthenticated local claim."}
         </p>
-        <label>
-          Actor name
-          <input name="actor" required />
-        </label>
+        <ActorField label="Actor name" required />
         {(kind === "change" || kind === "impact") && (
           <>
             <label>
@@ -2323,8 +2470,19 @@ function RecordDialog({
             </label>
             {kind === "review" && (
               <label>
-                Claimed reviewer role
-                <input name="role" />
+                {identity ? "Reviewer role" : "Claimed reviewer role"}
+                {identity ? (
+                  <select name="role">
+                    <option value="">No role</option>
+                    {identity.roles.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input name="role" />
+                )}
               </label>
             )}
             {kind === "assess" && category === "verification" && (
@@ -2378,12 +2536,13 @@ function ImportDialog({
   busy: boolean;
 }) {
   const [content, setContent] = useState("");
+  const identity = useContext(IdentityContext);
   const [mapping, setMapping] = useState<ObjectValue>(
     kind === "evidence"
       ? {
           producer: "junit",
           run_id: "run-001",
-          actor: "",
+          actor: identity?.username ?? "",
           artifact: { repository: "", revision: "" },
           mapping: {},
         }

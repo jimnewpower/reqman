@@ -22,6 +22,8 @@ This is an executable **preview**, not an accepted V1 release. The original SRS 
 
 These acceptance/distribution obligations do not drop SRS clauses. The product provides policy, authoring, history, baseline, trace, evidence, validation, migration, restore, reporting and recovery workflows. Some advanced metadata/mappings use explicit JSON. No imported status or actor claim becomes authenticated approval.
 
+Optional local username/password logins now add browser attribution: session-bound previews, assigned reviewer roles, server-bound decision actors and timestamps, and automatic append-only requirement change records. Authentication tests cover login failures, forged actors, account configuration, password hashing, expiry/logout, preview ownership, read-only mode and throttling. This extends the original preview scope; enterprise identity and signed/tamper-proof approvals remain outside it. See [setup and limits](operations.md#user-logins).
+
 ## Requirement inventory
 
 127 numbered requirements are tracked. Implemented/group evidence identifies concrete code and test groups; it is not per-clause certification.

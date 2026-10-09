@@ -43,6 +43,8 @@ Initialization creates `requirements.yml` and `requirements/main.md`. Discovery 
 
 The browser provides a register, Markdown authoring and preview, review/assessment forms, comparison, traceability, baselines, imports, and reports. Saves require a preview and a source-version check. The product does not stage, commit, fetch, push, install hooks, or change remotes.
 
+Optional [local user logins](docs/operations.md#user-logins) record the signed-in username on approvals, assessments, baselines, and requirement changes. Configure accounts in `requirements.yml` and generate password hashes with `node dist/cli.js password-hash`. Without login configuration, the browser uses the session access key and manually entered actor claims.
+
 For CLI authoring, save `new-requirement.json`:
 
 ```json

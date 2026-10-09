@@ -54,6 +54,58 @@
           "minLength": 1,
           "default": ".requirements"
         },
+        "authentication": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "session_hours": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 24,
+              "default": 8
+            },
+            "users": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$"
+                  },
+                  "display_name": {
+                    "$ref": "#/definitions/configuration/properties/project/properties/name"
+                  },
+                  "password_hash": {
+                    "type": "string",
+                    "pattern": "^scrypt\\$32768\\$8\\$3\\$[a-f0-9]{32}\\$[a-f0-9]{64}$"
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/configuration/properties/project/properties/name"
+                    },
+                    "default": []
+                  },
+                  "disabled": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                },
+                "required": [
+                  "username",
+                  "password_hash"
+                ],
+                "additionalProperties": false
+              },
+              "default": []
+            }
+          },
+          "additionalProperties": false
+        },
         "specifications": {
           "type": "array",
           "items": {

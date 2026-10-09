@@ -35,6 +35,44 @@ export const configSchema = z
       })
       .strict(),
     records_root: relativePath.default(".requirements"),
+    authentication: z
+      .object({
+        enabled: z.boolean().default(false),
+        session_hours: z.number().int().min(1).max(24).default(8),
+        users: z
+          .array(
+            z
+              .object({
+                username: z
+                  .string()
+                  .regex(/^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$/),
+                display_name: nonempty.optional(),
+                password_hash: z
+                  .string()
+                  .regex(/^scrypt\$32768\$8\$3\$[a-f0-9]{32}\$[a-f0-9]{64}$/),
+                roles: z.array(nonempty).default([]),
+                disabled: z.boolean().default(false),
+              })
+              .strict(),
+          )
+          .default([]),
+      })
+      .strict()
+      .superRefine((auth, ctx) => {
+        if (
+          new Set(auth.users.map((u) => u.username)).size !== auth.users.length
+        )
+          ctx.addIssue({
+            code: "custom",
+            message: "Login usernames must be unique",
+          });
+        if (auth.enabled && !auth.users.some((u) => !u.disabled))
+          ctx.addIssue({
+            code: "custom",
+            message: "Enabled authentication requires an active user",
+          });
+      })
+      .optional(),
     specifications: z
       .array(
         z

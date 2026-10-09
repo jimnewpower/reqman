@@ -291,6 +291,18 @@ label {
   font-weight: 400;
   margin-top: 24px;
 }
+.session-user {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+}
+.session-user small {
+  color: var(--muted);
+}
+.session-user + button {
+  margin-bottom: 12px;
+}
 .sidebar-bottom select {
   padding: 5px;
   font-size: 11px;
@@ -703,6 +715,9 @@ tbody tr:hover {
 }
 .record p {
   margin-top: 9px;
+}
+.record small {
+  display: block;
 }
 .muted {
   color: var(--muted);

@@ -4,6 +4,8 @@ import { resolve as resolvePath, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { realpath } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
+import { Writable } from "node:stream";
+import { hashPassword } from "./core/auth.js";
 import { Repository } from "./core/repository.js";
 import { Service, failure, type Request, type Result } from "./core/service.js";
 import { readBounded, Writer, type WritePlan } from "./core/files.js";
@@ -217,7 +219,7 @@ function action(operation: string) {
           : resolvePath(here, "../dist/ui");
         const session = await serve(service, Number(opts.port), ui);
         process.stderr.write(
-          `Reqman ${TOOL_VERSION}\nRepository: ${service.repository.root}\n${opts.readOnly ? "Read-only" : "Editable"} local session: ${session.origin}\nAccess key (enter in browser): ${session.token}\nPress Ctrl+C to stop.\n`,
+          `Reqman ${TOOL_VERSION}\nRepository: ${service.repository.root}\n${opts.readOnly ? "Read-only" : "Editable"} local session: ${session.origin}\n${session.loginEnabled ? "Sign in with a configured username and password." : `Access key (enter in browser): ${session.token}`}\nPress Ctrl+C to stop.\n`,
         );
         process.on("SIGINT", () => {
           session.server.close();
@@ -495,6 +497,47 @@ setup(program.command("apply-plan")).action(action("apply-plan"));
 setup(program.command("recover"))
   .requiredOption("--action <action>", "complete or rollback")
   .action(action("recover"));
+program
+  .command("password-hash")
+  .description(
+    "Generate a login password hash (hidden prompt or standard input)",
+  )
+  .action(async () => {
+    let password = "";
+    if (process.stdin.isTTY) {
+      const output = new Writable({
+        write(_chunk, _encoding, callback) {
+          callback();
+        },
+      });
+      const prompt = createInterface({
+        input: process.stdin,
+        output,
+        terminal: true,
+      });
+      try {
+        process.stderr.write("Password (at least 12 characters): ");
+        password = await prompt.question("", {
+          signal: operations.getStore()!.signal,
+        });
+      } finally {
+        prompt.close();
+        process.stderr.write("\n");
+      }
+    } else {
+      for await (const chunk of process.stdin) {
+        password += chunk.toString();
+        if (password.length > 4096)
+          throw new Problem(
+            2,
+            "PASSWORD_LENGTH",
+            "Password input is too long.",
+          );
+      }
+      password = password.replace(/\r?\n$/, "");
+    }
+    process.stdout.write(`${await hashPassword(password)}\n`);
+  });
 try {
   const controller = new AbortController();
   process.on("SIGINT", () => controller.abort());

@@ -128,6 +128,17 @@ export interface Config {
   project: { uid: string; name: string };
   documents: { include: string[]; exclude: string[] };
   records_root: string;
+  authentication?: {
+    enabled: boolean;
+    session_hours: number;
+    users: {
+      username: string;
+      display_name?: string;
+      password_hash: string;
+      roles: string[];
+      disabled: boolean;
+    }[];
+  };
   specifications: {
     uid: string;
     code: string;
