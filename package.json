@@ -13,6 +13,8 @@
   },
   "files": [
     "dist",
+    "src/ui/assets/reqman-icon.png",
+    "src/ui/assets/reqman-wordmark.png",
     "schemas",
     "docs",
     "README.md",
