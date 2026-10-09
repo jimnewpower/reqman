@@ -9,3 +9,7 @@ test-results/
 /.requirements/recovery/
 /.requirements/reports/
 /release-artifacts/
+aip-mapping.json
+aip-plan.json
+aip-preview.csv
+setup-plan.json

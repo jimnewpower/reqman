@@ -288,7 +288,7 @@ function action(operation: string) {
           request: { ...request, apply: false },
         });
         const result = await apply(packet, request);
-        const plan = (result.data as { plan?: WritePlan }).plan;
+        const plan = (result.data as { plan?: WritePlan } | null)?.plan;
         if (opts.planOutput && plan)
           await writeExport(
             resolvePath(opts.planOutput),
