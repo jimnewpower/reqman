@@ -206,8 +206,9 @@ export async function walk(
       result.push(rel);
       continue;
     }
-    if (entry.isDirectory()) result.push(...(await walk(root, rel, excluded)));
-    else if (entry.isFile()) result.push(rel);
+    if (entry.isDirectory()) {
+      for (const file of await walk(root, rel, excluded)) result.push(file);
+    } else if (entry.isFile()) result.push(rel);
     if (result.length > limits().files)
       throw new Problem(
         3,
@@ -235,7 +236,11 @@ export interface WritePlan {
 }
 const base64 = z
   .string()
-  .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/);
+  // Repeating four-character groups exhausts the regex stack on large plans.
+  .refine(
+    (value) => value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value),
+    "Invalid base64 payload.",
+  );
 const planSchema = z
   .object({
     uid: uuid,
