@@ -7,18 +7,43 @@
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #223431;
-  background: #f6f7f3;
+  color: var(--ink);
+  background: var(--bg);
   font-synthesis: none;
-  --bg: #f6f7f3;
+  --bg: #f4f6f8;
   --panel: #fff;
-  --ink: #223431;
-  --muted: #687871;
-  --line: #e0e5df;
-  --accent: #23765a;
-  --soft: #edf4ee;
-  --sidebar: #f0f3ed;
-  --danger: #9e3e33;
+  --ink: #001d37;
+  --muted: #526875;
+  --line: #d8e0e6;
+  --accent: #3d7291;
+  --accent-hover: #001d37;
+  --button-bg: #3d7291;
+  --button-hover: #001d37;
+  --soft: #eaf1f6;
+  --sidebar: #edf1f5;
+  --hover-line: #8caabd;
+  --focus: #3d7291;
+  --nav-active-bg: #dce8f0;
+  --nav-active-ink: #001d37;
+  --nav-count-bg: #d3e0e9;
+  --subtle: #7e95a5;
+  --brand-bg: #f4f5f8;
+  --brand-line: #d8e0e6;
+  --brand-muted: #526875;
+  --success: #286246;
+  --success-bg: #edf5ed;
+  --success-line: #dbe9db;
+  --warning: #866522;
+  --warning-bg: #fbf6e8;
+  --warning-line: #ecdfb9;
+  --danger: #97443d;
+  --danger-bg: #fcf0ef;
+  --danger-line: #ecd5d1;
+  --status-ok: #548968;
+  --status-dirty: #bc8b40;
+  --diff-removed: #bc8881;
+  --diff-added: #80a890;
+  --backdrop: #001d3766;
   color-scheme: light;
 }
 .relation-row {
@@ -58,7 +83,7 @@ button {
 }
 button:hover {
   background: var(--soft);
-  border-color: #a5bbab;
+  border-color: var(--hover-line);
 }
 button:disabled {
   cursor: not-allowed;
@@ -70,16 +95,17 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible,
 summary:focus-visible {
-  outline: 3px solid #4ca28b;
+  outline: 3px solid var(--focus);
   outline-offset: 3px;
 }
 .primary {
-  background: var(--accent);
+  background: var(--button-bg);
   color: white;
-  border-color: var(--accent);
+  border-color: var(--button-bg);
 }
 .primary:hover {
-  background: #18563f;
+  background: var(--button-hover);
+  border-color: var(--button-hover);
   color: white;
 }
 input,
@@ -99,6 +125,9 @@ textarea {
 }
 a {
   color: var(--accent);
+}
+a:hover {
+  color: var(--accent-hover);
 }
 h1,
 h2,
@@ -159,8 +188,8 @@ label {
   gap: 10px;
   align-items: center;
   text-decoration: none;
-  background: #f4f5f8;
-  border: 1px solid #d8e0e6;
+  background: var(--brand-bg);
+  border: 1px solid var(--brand-line);
   border-radius: 10px;
   padding: 10px;
 }
@@ -181,7 +210,7 @@ label {
 }
 .brand small {
   display: block;
-  color: #526875;
+  color: var(--brand-muted);
   font-size: 7px;
   letter-spacing: 0.8px;
   margin-top: 5px;
@@ -239,13 +268,13 @@ label {
   text-align: center;
 }
 .nav-item.active {
-  background: #e0eadf;
-  color: #23583d;
+  background: var(--nav-active-bg);
+  color: var(--nav-active-ink);
   font-weight: 650;
 }
 .nav-count {
   margin-left: auto;
-  background: #dbe3d9;
+  background: var(--nav-count-bg);
   border-radius: 4px;
   padding: 1px 5px;
   font-size: 10px;
@@ -282,12 +311,12 @@ label {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #548968;
+  background: var(--status-ok);
   display: inline-block;
   flex-shrink: 0;
 }
 .dot.dirty {
-  background: #bc8b40;
+  background: var(--status-dirty);
 }
 .workspace {
   margin-left: 240px;
@@ -309,7 +338,7 @@ label {
 }
 .breadcrumbs span {
   margin: 0 12px;
-  color: #b2bdb6;
+  color: var(--subtle);
 }
 .breadcrumbs strong {
   color: var(--ink);
@@ -389,7 +418,7 @@ main {
 .metrics strong small {
   font-size: 17px;
   font-weight: 400;
-  color: #9aa79e;
+  color: var(--muted);
   letter-spacing: 0;
 }
 .metrics p {
@@ -530,29 +559,29 @@ tbody tr:hover {
 .badge.active,
 .badge.editable,
 .badge.passed {
-  color: #286246;
-  background: #edf5ed;
-  border-color: #dbe9db;
+  color: var(--success);
+  background: var(--success-bg);
+  border-color: var(--success-line);
 }
 .badge.needs_review,
 .badge.changes_requested,
 .badge.partial {
-  color: #866522;
-  background: #fbf6e8;
-  border-color: #ecdfb9;
+  color: var(--warning);
+  background: var(--warning-bg);
+  border-color: var(--warning-line);
 }
 .badge.conflicted,
 .badge.rejected,
 .badge.failed {
-  color: #97443d;
-  background: #fcf0ef;
-  border-color: #ecd5d1;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: var(--danger-line);
 }
 .badge.unknown,
 .badge.unreviewed,
 .badge.not_assessed {
-  color: #72746d;
-  background: #f4f4ef;
+  color: var(--muted);
+  background: var(--bg);
 }
 .panel-footer {
   border-top: 1px solid var(--line);
@@ -688,7 +717,7 @@ tbody tr:hover {
 }
 .empty > span {
   display: block;
-  color: #96b19b;
+  color: var(--subtle);
   font-size: 40px;
   margin-bottom: 18px;
 }
@@ -786,10 +815,10 @@ tbody tr:hover {
   border-radius: 5px;
 }
 .diff-columns > div:first-child {
-  border-top: 3px solid #bc8881;
+  border-top: 3px solid var(--diff-removed);
 }
 .diff-columns > div:last-child {
-  border-top: 3px solid #80a890;
+  border-top: 3px solid var(--diff-added);
 }
 .baseline-row {
   padding: 25px;
@@ -812,11 +841,11 @@ tbody tr:hover {
   margin-bottom: 10px;
 }
 .alert {
-  background: #fff2ed;
-  border: 1px solid #eac9bd;
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
   border-radius: 7px;
   padding: 18px;
-  color: #8b402f;
+  color: var(--danger);
   margin-bottom: 20px;
   font-size: 12px;
 }
@@ -851,7 +880,7 @@ dialog {
   box-shadow: 0 20px 70px #0003;
 }
 dialog::backdrop {
-  background: #122f2466;
+  background: var(--backdrop);
   backdrop-filter: blur(3px);
 }
 .dialog-head {
@@ -981,68 +1010,71 @@ summary {
   white-space: nowrap;
 }
 html[data-theme="dark"] {
-  --bg: #19221e;
-  --panel: #202d26;
-  --ink: #e0e7e0;
-  --muted: #a5b5a8;
-  --line: #36453a;
-  --accent: #6cba91;
-  --soft: #2b3d2f;
-  --sidebar: #1d2820;
+  --bg: #0d1b29;
+  --panel: #142536;
+  --ink: #e5edf4;
+  --muted: #a5b8c8;
+  --line: #30485b;
+  --accent: #86bbd7;
+  --accent-hover: #b9d9eb;
+  --button-hover: #315f7a;
+  --soft: #1d3549;
+  --sidebar: #102131;
+  --hover-line: #6389a1;
+  --focus: #86bbd7;
+  --nav-active-bg: #25455d;
+  --nav-active-ink: #d8eaf5;
+  --nav-count-bg: #304f66;
+  --subtle: #89a5b9;
+  --success: #9ed4b5;
+  --success-bg: #1c382e;
+  --success-line: #365747;
+  --warning: #e4c47f;
+  --warning-bg: #382f1c;
+  --warning-line: #5f4e2e;
+  --danger: #efb2ab;
+  --danger-bg: #3c2529;
+  --danger-line: #644049;
+  --status-ok: #81bd9d;
+  --status-dirty: #e4c47f;
+  --diff-removed: #ce948c;
+  --diff-added: #81bd9d;
+  --backdrop: #00101fcc;
   color-scheme: dark;
-}
-.primary {
-  color: white;
-}
-html[data-theme="dark"] .primary {
-  background: #326c4c;
-}
-html[data-theme="dark"] .nav-item.active {
-  background: #324934;
-  color: #d5eed7;
-}
-html[data-theme="dark"] .badge {
-  background: var(--bg);
-  color: var(--muted);
-  border-color: var(--line);
-}
-html[data-theme="dark"] .alert {
-  background: #422b24;
-  color: #efc4b7;
 }
 @media (prefers-color-scheme: dark) {
   html[data-theme="system"] {
-    --bg: #19221e;
-    --panel: #202d26;
-    --ink: #e0e7e0;
-    --muted: #a5b5a8;
-    --line: #36453a;
-    --accent: #6cba91;
-    --soft: #2b3d2f;
-    --sidebar: #1d2820;
+    --bg: #0d1b29;
+    --panel: #142536;
+    --ink: #e5edf4;
+    --muted: #a5b8c8;
+    --line: #30485b;
+    --accent: #86bbd7;
+    --accent-hover: #b9d9eb;
+    --button-hover: #315f7a;
+    --soft: #1d3549;
+    --sidebar: #102131;
+    --hover-line: #6389a1;
+    --focus: #86bbd7;
+    --nav-active-bg: #25455d;
+    --nav-active-ink: #d8eaf5;
+    --nav-count-bg: #304f66;
+    --subtle: #89a5b9;
+    --success: #9ed4b5;
+    --success-bg: #1c382e;
+    --success-line: #365747;
+    --warning: #e4c47f;
+    --warning-bg: #382f1c;
+    --warning-line: #5f4e2e;
+    --danger: #efb2ab;
+    --danger-bg: #3c2529;
+    --danger-line: #644049;
+    --status-ok: #81bd9d;
+    --status-dirty: #e4c47f;
+    --diff-removed: #ce948c;
+    --diff-added: #81bd9d;
+    --backdrop: #00101fcc;
     color-scheme: dark;
-  }
-  html[data-theme="system"] .primary {
-    background: #326c4c;
-  }
-  html[data-theme="system"] .nav-item.active {
-    background: #324934;
-    color: #d5eed7;
-  }
-}
-:root {
-  background: var(--bg);
-  color: var(--ink);
-}
-@media (prefers-color-scheme: dark) {
-  html[data-theme="system"] .badge {
-    background: var(--bg);
-    color: var(--muted);
-    border-color: var(--line);
-  }
-  html[data-theme="system"] .alert {
-    background: #422b24;
-    color: #efc4b7;
   }
 }
 @media (min-width: 1600px) {
