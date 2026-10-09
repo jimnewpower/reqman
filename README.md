@@ -1,5 +1,10 @@
 # Reqman
 
+<p>
+  <img src="src/ui/assets/reqman-icon.png" alt="" height="64" />
+  <img src="src/ui/assets/reqman-wordmark.png" alt="Reqman" height="64" />
+</p>
+
 A local requirements workspace built with **TypeScript, Node.js, and React**. Definitions live in Markdown, decisions live in checked-in YAML records, and history stays in Git.
 
 **Working preview, not a complete V1 release.** The full target remains [the SRS](docs/requirements/reqman-srs.md). See [implementation status](docs/status.md). Policies, exact impact decisions, migration/restore, history, evidence attachments, and filtered reports are implemented. Release acceptance evidence is tracked separately.
