@@ -10,10 +10,13 @@ import { json, readSchema } from "./core/data.js";
 import { requestSchema, exportRequestSchema } from "./core/requests.js";
 import { Problem, type Snapshot } from "./core/model.js";
 
-const service = new Service(
-  new Repository(workerData.root, workerData.configPath, workerData.readOnly),
+const repository = new Repository(
+  workerData.root,
+  workerData.configPath,
+  workerData.readOnly,
 );
 parentPort!.on("message", async (task: WorkerTask) => {
+  const service = new Service(repository, task.identity);
   const controller = new AbortController();
   const context: OperationContext = {
     signal: controller.signal,
@@ -72,7 +75,7 @@ parentPort!.on("message", async (task: WorkerTask) => {
         });
         return;
       }
-      const request = task.request;
+      const request = service.attribute(task.request);
       const bytes = Buffer.from(String(request.input?.content ?? ""));
       const result =
         request.operation === "restore"

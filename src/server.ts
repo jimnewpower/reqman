@@ -8,12 +8,14 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import { json as parseJson, utf8 } from "./core/data.js";
+import { digest, json as parseJson, utf8, yaml } from "./core/data.js";
+import { config as parseConfig } from "./core/schema.js";
+import { hashPassword, verifyPassword, type Identity } from "./core/auth.js";
 import { Problem } from "./core/model.js";
 import { Service, failure, type Request } from "./core/service.js";
 import type { WritePlan } from "./core/files.js";
 import { AnalysisWorker } from "./core/worker-client.js";
-import { Writer } from "./core/files.js";
+import { Writer, optionalBytes, safePath } from "./core/files.js";
 import {
   operations,
   limits,
@@ -21,6 +23,22 @@ import {
 } from "./core/operations.js";
 
 export async function serve(service: Service, port = 0, uiDirectory?: string) {
+  const authentication = async () => {
+    const bytes = await optionalBytes(
+      await safePath(service.repository.root, service.repository.configPath),
+    );
+    return bytes ? parseConfig(yaml(utf8(bytes))).authentication : undefined;
+  };
+  const auth = await authentication();
+  const loginEnabled = auth?.enabled ?? false;
+  const authDigest = digest(auth ?? null);
+  const dummyHash = loginEnabled
+    ? await hashPassword(randomBytes(32).toString("hex"))
+    : "";
+  const sessions = new Map<string, { identity: Identity; expires: number }>();
+  let loginFailures = 0,
+    retryAt = 0,
+    loginActive = false;
   const configuredLimits = { ...limits() };
   const analysis = new AnalysisWorker(
     service.repository.root,
@@ -30,14 +48,14 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
     new URL("../dist/worker.js", import.meta.url),
   );
   const token = randomBytes(32).toString("hex");
-  const plans = new Map<string, WritePlan>();
+  const plans = new Map<string, { plan: WritePlan; owner: string }>();
   const ui =
     uiDirectory ??
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/ui");
   let origin = "";
   const jobs = new Map<
     string,
-    { controller: AbortController; context: OperationContext }
+    { controller: AbortController; context: OperationContext; owner: string }
   >();
   const server = createServer(async (req, res) => {
     const controller = new AbortController();
@@ -52,7 +70,14 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
       typeof suppliedId === "string" && /^[a-f0-9-]{36}$/.test(suppliedId)
         ? suppliedId
         : randomBytes(16).toString("hex");
-    jobs.set(id, { controller, context });
+    // Operation IDs are client hints; one session cannot replace another's job.
+    if (jobs.has(id)) {
+      res.writeHead(409);
+      res.end();
+      return;
+    }
+    const owner = req.headers.authorization?.replace(/^Bearer /, "") ?? "";
+    jobs.set(id, { controller, context, owner });
     res.on("close", () => {
       if (!res.writableEnded) controller.abort();
     });
@@ -76,8 +101,9 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
         });
         res.end(serialized);
       };
+      let identity: Identity | undefined;
       const analyze = (task: Parameters<AnalysisWorker["run"]>[0]) =>
-        analysis.run(task, controller.signal, (progress) => {
+        analysis.run({ ...task, identity }, controller.signal, (progress) => {
           context.progress = progress;
         });
       try {
@@ -98,24 +124,118 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
           );
         const url = new URL(req.url ?? "/", origin);
         if (url.pathname.startsWith("/api/")) {
-          const supplied = Buffer.from(
-            req.headers.authorization?.replace(/^Bearer /, "") ?? "",
-          );
-          const expected = Buffer.from(token);
-          if (
-            supplied.length !== expected.length ||
-            !timingSafeEqual(supplied, expected)
-          )
+          if (digest((await authentication()) ?? null) !== authDigest) {
+            sessions.clear();
+            plans.clear();
             throw new Problem(
               4,
               "HTTP_AUTH",
-              "Enter the access key printed by reqman serve.",
+              "Login configuration changed. Restart reqman serve.",
             );
+          }
           if (
             req.method !== "POST" ||
             !req.headers["content-type"]?.startsWith("application/json")
           )
             throw new Problem(2, "HTTP_METHOD", "API requests must POST JSON.");
+          const session = sessions.get(owner);
+          if (session && session.expires <= Date.now()) {
+            sessions.delete(owner);
+            for (const [key, value] of plans)
+              if (value.owner === owner) plans.delete(key);
+          } else identity = session?.identity;
+          if (url.pathname === "/api/session") {
+            await readBody(req, 4096);
+            json(200, { loginEnabled, user: identity ?? null });
+            return;
+          }
+          if (url.pathname === "/api/login") {
+            if (!loginEnabled)
+              throw new Problem(
+                4,
+                "HTTP_AUTH",
+                "This workspace uses the access key printed by reqman serve.",
+              );
+            const input = z
+              .object({
+                username: z.string().min(1).max(64),
+                password: z.string().min(1).max(1024),
+              })
+              .strict()
+              .parse(parseJson(await readBody(req, 4096)));
+            if (Date.now() >= retryAt) loginFailures = 0;
+            if (loginActive || loginFailures >= 5)
+              throw new Problem(
+                4,
+                "LOGIN_THROTTLED",
+                "Too many login attempts. Try again in one minute.",
+              );
+            loginActive = true;
+            try {
+              const user = auth!.users.find(
+                (u) => u.username === input.username && !u.disabled,
+              );
+              const valid = await verifyPassword(
+                input.password,
+                user?.password_hash ?? dummyHash,
+              );
+              if (!user || !valid) {
+                loginFailures++;
+                retryAt = Date.now() + 60000;
+                throw new Problem(
+                  4,
+                  "HTTP_AUTH",
+                  "Username or password is incorrect.",
+                );
+              }
+              loginFailures = 0;
+              for (const [key, value] of sessions)
+                if (value.expires <= Date.now()) sessions.delete(key);
+              if (sessions.size >= 100)
+                throw new Problem(
+                  4,
+                  "LOGIN_THROTTLED",
+                  "Session limit reached. Sign out an existing session or restart reqman serve.",
+                );
+              const sessionToken = randomBytes(32).toString("hex");
+              const userIdentity = {
+                username: user.username,
+                display_name: user.display_name ?? user.username,
+                roles: user.roles,
+              };
+              sessions.set(sessionToken, {
+                identity: userIdentity,
+                expires: Date.now() + auth!.session_hours * 3600000,
+              });
+              json(200, { token: sessionToken, user: userIdentity });
+            } finally {
+              loginActive = false;
+            }
+            return;
+          }
+          const supplied = Buffer.from(owner);
+          const expected = Buffer.from(token);
+          if (
+            loginEnabled
+              ? !identity
+              : supplied.length !== expected.length ||
+                !timingSafeEqual(supplied, expected)
+          )
+            throw new Problem(
+              4,
+              "HTTP_AUTH",
+              loginEnabled
+                ? "Sign in to this workspace. Your session may have expired."
+                : "Enter the access key printed by reqman serve.",
+            );
+          if (url.pathname === "/api/logout") {
+            await readBody(req, 4096);
+            sessions.delete(owner);
+            for (const [key, value] of plans)
+              if (value.owner === owner) plans.delete(key);
+            json(200, { signedOut: true });
+            return;
+          }
           const raw = await readBody(
             req,
             ["/api/apply", "/api/progress", "/api/cancel"].includes(
@@ -127,7 +247,7 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
           if (url.pathname === "/api/progress") {
             json(200, {
               jobs: [...jobs]
-                .filter(([key]) => key !== id)
+                .filter(([key, job]) => key !== id && job.owner === owner)
                 .map(([key, job]) => ({ id: key, ...job.context.progress })),
             });
             return;
@@ -137,7 +257,8 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
               .object({ operation: z.string() })
               .strict()
               .parse(parseJson(raw)).operation;
-            const job = jobs.get(target);
+            const candidate = jobs.get(target);
+            const job = candidate?.owner === owner ? candidate : undefined;
             const accepted = Boolean(job && !job.context.progress.atomic);
             if (accepted) job!.controller.abort();
             json(200, {
@@ -151,13 +272,14 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
               .object({ plan: z.string() })
               .strict()
               .parse(parseJson(raw)).plan;
-            const plan = plans.get(id);
-            if (!plan)
+            const preview = plans.get(id);
+            if (!preview || preview.owner !== owner)
               throw new Problem(
                 4,
                 "PLAN_EXPIRED",
                 "Preview expired. Generate another preview.",
               );
+            const plan = preview.plan;
             const prepared = await analyze({
               kind: "prepare",
               request: { operation: "apply-plan" },
@@ -167,6 +289,16 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
               send(prepared.serialized, prepared.httpStatus);
               return;
             }
+            if (
+              loginEnabled &&
+              (!sessions.has(owner) ||
+                sessions.get(owner)!.expires <= Date.now())
+            )
+              throw new Problem(
+                4,
+                "HTTP_AUTH",
+                "Sign in again before applying changes.",
+              );
             await new Writer(
               service.repository.root,
               prepared.prepared.recordsRoot,
@@ -194,8 +326,18 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
           });
           const plan = result.plan;
           if (plan) {
+            if (
+              loginEnabled &&
+              (!sessions.has(owner) ||
+                sessions.get(owner)!.expires <= Date.now())
+            )
+              throw new Problem(
+                4,
+                "HTTP_AUTH",
+                "Sign in again and generate another preview.",
+              );
             if (plans.size >= 50) plans.delete(plans.keys().next().value!);
-            plans.set(plan.uid, plan);
+            plans.set(plan.uid, { plan, owner });
           }
           send(result.serialized, result.httpStatus);
           return;
@@ -229,9 +371,11 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
         json(
           result.diagnostics[0].code === "HTTP_AUTH"
             ? 401
-            : result.exit_code === 4
-              ? 409
-              : 400,
+            : result.diagnostics[0].code === "LOGIN_THROTTLED"
+              ? 429
+              : result.exit_code === 4
+                ? 409
+                : 400,
           result,
         );
       } finally {
@@ -253,7 +397,7 @@ export async function serve(service: Service, port = 0, uiDirectory?: string) {
   if (!address || typeof address === "string")
     throw new Error("No loopback address");
   origin = `http://127.0.0.1:${address.port}`;
-  return { server, origin, token };
+  return { server, origin, token, loginEnabled };
 }
 async function readBody(req: IncomingMessage, limit: number): Promise<string> {
   const chunks: Buffer[] = [];

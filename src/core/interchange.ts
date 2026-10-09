@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { LOGIN_PROVENANCE } from "./auth.js";
 import { mkdir, open, realpath } from "node:fs/promises";
 import path from "node:path";
 import { stringify } from "yaml";
@@ -475,7 +476,9 @@ export async function importEvidence(
       obligations: [obligation.uid],
       location: input.location ?? "explicit local import",
       snapshot: s.info,
-      provenance: "imported producer claim; unauthenticated",
+      provenance: service.identity
+        ? `${LOGIN_PROVENANCE}; imported producer claim; unauthenticated`
+        : "imported producer claim; unauthenticated",
     });
     records.push(record);
   }

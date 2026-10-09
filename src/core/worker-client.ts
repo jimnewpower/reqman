@@ -3,6 +3,7 @@ import { Problem } from "./model.js";
 import { failure, type Request } from "./service.js";
 import type { WritePlan } from "./files.js";
 import type { RuntimeLimits, OperationContext } from "./operations.js";
+import type { Identity } from "./auth.js";
 
 export interface WorkerResult {
   serialized: string;
@@ -12,6 +13,7 @@ export interface WorkerResult {
   prepared?: { plan: WritePlan; recordsRoot: string };
 }
 export type WorkerTask = {
+  identity?: Identity;
   kind: "command" | "export" | "prepare";
   request: Request;
   raw?: string;

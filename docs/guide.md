@@ -1,6 +1,6 @@
 # CLI and authoring
 
-Place global `--repo`, `--config`, `--format text|json`, `--quiet`, and `--no-color` before the command. Configuration paths are repository-relative. Commands never require terminal interaction.
+Place global `--repo`, `--config`, `--format text|json`, `--quiet`, and `--no-color` before the command. Configuration paths are repository-relative. Repository commands never require terminal interaction. The standalone `password-hash` utility uses a hidden terminal prompt or accepts standard input; see [user login setup](operations.md#user-logins).
 
 Read commands: `validate`, `list`, `search --query TEXT`, `show UUID`, `document show PATH`, `history UUID`, `trace`, `matrix`, `gaps`, `impact --base A --head B`, `diff --base A --head B`, `baseline list`, `baseline show NAME`, and `doctor`. Inventory filters include specification, lifecycle, disposition, status, currency and scope. Select the evaluated artifact with `--artifact-repository ID --artifact-revision REVISION`.
 
@@ -31,7 +31,7 @@ Mutation inputs use `--input FILE.json`. They preview unless `--apply` is presen
 | `upgrade` | Optional `expand_defaults: true`; unsupported versions produce a compatibility report |
 | `baseline create` | `name`, committed `target`, `actor`, optional description/selection/supersedes |
 
-Bulk decisions provide `subjects: [UUID, ...]` instead of a positional target. Reconciliation names all resolved records in `supersedes`. Timestamps never select the winning decision. Claims of actor identity are not independently authenticated.
+Bulk decisions provide `subjects: [UUID, ...]` instead of a positional target. Reconciliation names all resolved records in `supersedes`. Timestamps never select the winning decision. CLI actor identities remain unauthenticated claims. When browser logins are configured, the browser records the session's username and login provenance; actor fields are read-only.
 
 Review decisions: approved, changes_requested, rejected, revoked. Assessment categories: implementation (not_started, partial, implemented) and verification (planned, passed, failed, blocked, inconclusive). Lifecycle and disposition follow the SRS, including required reasons and transfer targets.
 
@@ -45,7 +45,7 @@ Commit the intended definitions and decisions with Git. Create a baseline at tha
 
 JSON stdout contains one object with schema_version, tool_version, operation, complete, snapshot, data, diagnostics, exit_code. Diagnostic fields include severity, code, file, line, column, subject when available, explanation and remediation. Configuration and marker schema diagnostics resolve offending YAML keys where available; structural findings use the affected block location. Waived findings retain waiver details and evaluation time.
 
-Exit codes: 0 success, 1 validation findings, 2 invalid invocation/configuration/unsupported format, 3 operational or incomplete analysis, 4 edit/decision conflict, 130 cancellation. CLI help/version and long-running serve startup are outside the operation envelope. Session keys appear only in explicit serve startup output, never reports or repository data.
+Exit codes: 0 success, 1 validation findings, 2 invalid invocation/configuration/unsupported format, 3 operational or incomplete analysis, 4 edit/decision conflict, 130 cancellation. CLI help/version, `password-hash`, and long-running serve startup are outside the operation envelope. Session keys appear only in explicit serve startup output, never reports or repository data. With logins enabled, startup prints sign-in instructions instead of an access key.
 
 ## Resource limits and progress
 
