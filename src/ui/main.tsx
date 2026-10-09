@@ -22,6 +22,38 @@ import type {
 import type { Result, Request } from "../core/service";
 import "./style.css";
 
+const logoIcon = new URL("./assets/reqman-icon.png", import.meta.url).href;
+const logoWordmark = new URL("./assets/reqman-wordmark.png", import.meta.url)
+  .href;
+const brandIllustration = new URL(
+  "./assets/reqman-illustration.jpg",
+  import.meta.url,
+).href;
+
+function Brand() {
+  return (
+    <>
+      <img
+        className="brand-mark"
+        src={logoIcon}
+        alt=""
+        width="429"
+        height="466"
+      />
+      <span className="brand-name">
+        <img
+          className="brand-title"
+          src={logoWordmark}
+          alt="Reqman"
+          width="463"
+          height="134"
+        />
+        <small>REQUIREMENTS, IN CONTEXT</small>
+      </span>
+    </>
+  );
+}
+
 type Row = Requirement & { state: Projection; fileToken: string };
 const ErrorContext = createContext("");
 type Register = {
@@ -394,41 +426,52 @@ function App() {
   if (!token || (!data && error.includes("access key")))
     return (
       <main className="login">
-        <div className="brand-mark">
-          r<span>·</span>
+        <div className="login-content">
+          <div className="brand">
+            <Brand />
+          </div>
+          <p className="eyebrow">LOCAL REQUIREMENTS WORKSPACE</p>
+          <h1>
+            Your requirements.
+            <br />
+            Your repository.
+          </h1>
+          <p>
+            Enter the access key from <code>reqman serve</code> to open this
+            local session.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              sessionStorage.setItem("reqman-key", keyInput);
+              setToken(keyInput);
+              setError("");
+            }}
+          >
+            <label htmlFor="access-key">Session access key</label>
+            <input
+              id="access-key"
+              type="password"
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              required
+              autoFocus
+              autoComplete="off"
+            />
+            <button className="primary">Open workspace →</button>
+          </form>
+          {error && <p role="alert">{error}</p>}
+          <small>
+            Files stay on this machine. No account or hosted service.
+          </small>
         </div>
-        <p className="eyebrow">LOCAL REQUIREMENTS WORKSPACE</p>
-        <h1>
-          Your requirements.
-          <br />
-          Your repository.
-        </h1>
-        <p>
-          Enter the access key from <code>reqman serve</code> to open this local
-          session.
-        </p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            sessionStorage.setItem("reqman-key", keyInput);
-            setToken(keyInput);
-            setError("");
-          }}
-        >
-          <label htmlFor="access-key">Session access key</label>
-          <input
-            id="access-key"
-            type="password"
-            value={keyInput}
-            onChange={(e) => setKeyInput(e.target.value)}
-            required
-            autoFocus
-            autoComplete="off"
-          />
-          <button className="primary">Open workspace →</button>
-        </form>
-        {error && <p role="alert">{error}</p>}
-        <small>Files stay on this machine. No account or hosted service.</small>
+        <img
+          className="login-illustration"
+          src={brandIllustration}
+          alt=""
+          width="1152"
+          height="1728"
+        />
       </main>
     );
   return (
@@ -438,17 +481,13 @@ function App() {
           <a
             className="brand"
             href="#"
+            aria-label="Reqman home"
             onClick={(e) => {
               e.preventDefault();
               setPage("Register");
             }}
           >
-            <span className="brand-mark">
-              r<span>·</span>
-            </span>
-            <span>
-              reqman<small>REQUIREMENTS, IN CONTEXT</small>
-            </span>
+            <Brand />
           </a>
           <div className="project-card">
             <span className="project-icon">▦</span>

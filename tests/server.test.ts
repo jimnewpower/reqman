@@ -2,8 +2,55 @@ import { describe, it, expect } from "vitest";
 import { serve } from "../src/server";
 import { fixture } from "./helpers";
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { requirementBlock } from "../src/core/markdown";
 describe("loopback boundary", () => {
+  it("serves local logo assets with image types and permits only local images", async () => {
+    const f = await fixture();
+    const ui = path.join(f.root, "ui");
+    await mkdir(path.join(ui, "assets"), { recursive: true });
+    await writeFile(path.join(ui, "index.html"), "<!doctype html>");
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    const jpeg = Buffer.from([255, 216, 255, 217]);
+    await writeFile(path.join(ui, "assets/logo.png"), png);
+    await writeFile(path.join(ui, "assets/illustration.jpg"), jpeg);
+    await writeFile(path.join(ui, "assets/illustration.jpeg"), jpeg);
+    const session = await serve(f.service, 0, ui);
+    try {
+      const index = await fetch(session.origin);
+      expect(index.status).toBe(200);
+      expect(index.headers.get("content-type")).toBe(
+        "text/html; charset=utf-8",
+      );
+      expect(index.headers.get("content-security-policy")).toMatch(
+        /(?:^|; )img-src 'self'(?:;|$)/,
+      );
+      for (const [name, type, bytes] of [
+        ["logo.png", "image/png", png],
+        ["illustration.jpg", "image/jpeg", jpeg],
+        ["illustration.jpeg", "image/jpeg", jpeg],
+      ] as const) {
+        const response = await fetch(`${session.origin}/assets/${name}`);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toBe(type);
+        expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+      }
+      expect((await fetch(`${session.origin}/logo.png`)).status).toBe(404);
+      expect(
+        (
+          await fetch(`${session.origin}/assets/logo.png`, {
+            headers: { Origin: "https://malicious.invalid" },
+          })
+        ).status,
+      ).toBe(409);
+    } finally {
+      await new Promise<void>((resolve) =>
+        session.server.close(() => resolve()),
+      );
+    }
+  });
   it("acknowledges cancellation while analysis is busy and rebuilds the disposable worker", async () => {
     const f = await fixture();
     const blocks = Array.from({ length: 1500 }, (_, i) =>
